@@ -205,6 +205,13 @@ export default function MatchCard({
             </button>
           )}
 
+          {isScheduled && !onPredict && hasPrediction && (
+            <span className="flex items-center gap-1 text-xs text-amber-400/80 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20">
+              <Lock size={10} />
+              <span className="font-medium">Locked</span>
+            </span>
+          )}
+
           {!isScheduled && !onPredict && (
             <Lock size={12} className="text-gray-600" />
           )}

@@ -1,19 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { R16_MATCHES } from "@/data/matches";
+import {
+  getSeededPredictionsForPlayer,
+  isExistingLockedPlayer,
+} from "@/data/seeded-predictions";
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
 import { Match, Prediction } from "@/types";
-import { Target, CheckCircle2, AlertCircle, LogIn } from "lucide-react";
+import { Target, CheckCircle2, AlertCircle, LogIn, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export default function PredictPage() {
   const { user, profile, predictions, loading } = useAuth();
   const [activeModal, setActiveModal] = useState<Match | null>(null);
+
+  // Determine if this user is an existing player with locked predictions
+  const isLocked = useMemo(() => {
+    if (!profile) return false;
+    return isExistingLockedPlayer(profile.playerId ?? "");
+  }, [profile]);
+
+  // Get the seeded predictions for this existing player
+  const seededPreds = useMemo(() => {
+    if (!profile || !isLocked) return {};
+    return getSeededPredictionsForPlayer(profile.playerId ?? "");
+  }, [profile, isLocked]);
 
   if (loading) {
     return (
@@ -57,14 +73,28 @@ export default function PredictPage() {
 
   const upcomingMatches = R16_MATCHES.filter((m) => m.status === "SCHEDULED");
   const finishedMatches = R16_MATCHES.filter((m) => m.status === "FINISHED");
-  const predictedCount = upcomingMatches.filter(
-    (m) => predictions[m.id],
+
+  // For existing locked players, use seeded predictions
+  // For new users, use their Firestore predictions
+  const predictedCount = upcomingMatches.filter((m) =>
+    isLocked ? seededPreds[m.id] : predictions[m.id],
+  ).length;
+  const finishedPredCount = finishedMatches.filter((m) =>
+    isLocked ? seededPreds[m.id] : predictions[m.id],
   ).length;
   const totalCount = upcomingMatches.length;
   const progress =
     totalCount > 0 ? Math.round((predictedCount / totalCount) * 100) : 0;
 
+  // Resolve a prediction: use seeded data for locked users, Firestore for new users
   function toPrediction(matchId: string): Prediction | undefined {
+    if (isLocked && seededPreds[matchId]) {
+      return {
+        matchId,
+        winner: seededPreds[matchId],
+        submittedAt: "2026-07-05T23:59:00Z",
+      };
+    }
     const p = predictions[matchId];
     if (!p) return undefined;
     return { matchId, winner: p.winner, submittedAt: "" };
@@ -168,19 +198,29 @@ export default function PredictPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={14} className="text-wc-gold" />
-            <p className="text-xs text-gray-500">
-              Predictions are locked once the match kicks off. Pick your
-              winners!
-            </p>
-          </div>
+          {isLocked ? (
+            <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
+              <Lock size={14} className="text-amber-400 flex-shrink-0" />
+              <p className="text-xs text-amber-300">
+                Your predictions were locked on Sunday, Jul 5. They cannot be
+                edited.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <AlertCircle size={14} className="text-wc-gold" />
+              <p className="text-xs text-gray-500">
+                Predictions are locked once the match kicks off. Pick your
+                winners!
+              </p>
+            </div>
+          )}
           {upcomingMatches.map((match, i) => (
             <MatchCard
               key={match.id}
               match={match}
               prediction={toPrediction(match.id)}
-              onPredict={setActiveModal}
+              onPredict={isLocked ? undefined : setActiveModal}
               index={i}
             />
           ))}
