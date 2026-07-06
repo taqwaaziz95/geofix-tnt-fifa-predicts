@@ -13,6 +13,7 @@ import {
   X,
   LogOut,
   LogIn,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const PUBLIC_NAV = [
 const AUTH_NAV = [
   { href: "/", label: "Home", icon: Trophy },
   { href: "/predict", label: "Predict", icon: Target },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leaderboard", label: "Leaderboard", icon: BarChart3 },
   { href: "/bracket", label: "Bracket", icon: Grid3x3 },
 ];
@@ -52,7 +54,7 @@ export default function Navbar() {
           className="flex items-center gap-2 font-display font-bold text-lg"
         >
           <span className="text-2xl">⚽</span>
-          <span className="text-wc-gold">WC</span>
+          <span className="text-wc-gold">GEOFIX TNT</span>
           <span className="text-white">2026</span>
           <span className="text-xs bg-wc-gold/20 text-wc-gold px-2 py-0.5 rounded-full font-semibold ml-1 hidden sm:inline">
             PREDICT

@@ -28,12 +28,18 @@ export default function MatchCard({
   const hasPrediction = !!prediction;
 
   const predictedWinner = prediction?.winner;
+  const hasPenalties =
+    isFinished && match.homePenalties != null && match.awayPenalties != null;
   const actualWinner = isFinished
-    ? match.homeScore! > match.awayScore!
-      ? match.homeTeam.name
-      : match.awayScore! > match.homeScore!
-        ? match.awayTeam.name
-        : "draw"
+    ? hasPenalties
+      ? match.homePenalties! > match.awayPenalties!
+        ? match.homeTeam.name
+        : match.awayTeam.name
+      : match.homeScore! > match.awayScore!
+        ? match.homeTeam.name
+        : match.awayScore! > match.homeScore!
+          ? match.awayTeam.name
+          : "draw"
     : null;
 
   const isCorrect =
@@ -96,14 +102,26 @@ export default function MatchCard({
         {/* Score / VS */}
         <div className="flex-shrink-0 text-center">
           {(isFinished || isLive) && match.homeScore !== undefined ? (
-            <div className="flex items-center gap-1">
-              <span className="font-display text-2xl font-bold text-wc-gold">
-                {match.homeScore}
-              </span>
-              <span className="text-gray-600 font-bold">—</span>
-              <span className="font-display text-2xl font-bold text-wc-gold">
-                {match.awayScore}
-              </span>
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1">
+                <span className="font-display text-2xl font-bold text-wc-gold">
+                  {match.homeScore}
+                </span>
+                <span className="text-gray-600 font-bold">—</span>
+                <span className="font-display text-2xl font-bold text-wc-gold">
+                  {match.awayScore}
+                </span>
+              </div>
+              {hasPenalties && (
+                <span className="text-[10px] text-gray-500 font-medium">
+                  ({match.homePenalties}–{match.awayPenalties} pen)
+                </span>
+              )}
+              {match.extraTime && !hasPenalties && (
+                <span className="text-[10px] text-gray-500 font-medium">
+                  (aet)
+                </span>
+              )}
             </div>
           ) : (
             <span className="font-display text-lg font-bold text-gray-600 px-2">

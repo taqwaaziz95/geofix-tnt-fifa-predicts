@@ -9,8 +9,18 @@ interface BracketMatchProps {
 
 function BracketMatch({ match }: BracketMatchProps) {
   const isFinished = match.status === "FINISHED";
-  const homeWon = isFinished && match.homeScore! > match.awayScore!;
-  const awayWon = isFinished && match.awayScore! > match.homeScore!;
+  const hasPenalties =
+    isFinished && match.homePenalties != null && match.awayPenalties != null;
+  const homeWon =
+    isFinished &&
+    (hasPenalties
+      ? match.homePenalties! > match.awayPenalties!
+      : match.homeScore! > match.awayScore!);
+  const awayWon =
+    isFinished &&
+    (hasPenalties
+      ? match.awayPenalties! > match.homePenalties!
+      : match.awayScore! > match.homeScore!);
   const isTBD = match.homeTeam.id.startsWith("tbd");
 
   if (isTBD && !isFinished) {
@@ -59,6 +69,11 @@ function BracketMatch({ match }: BracketMatchProps) {
               {match.homeScore}
             </span>
           )}
+          {hasPenalties && (
+            <span className="text-xs text-gray-500">
+              ({match.homePenalties})
+            </span>
+          )}
         </div>
         {/* Away team */}
         <div
@@ -84,6 +99,11 @@ function BracketMatch({ match }: BracketMatchProps) {
               )}
             >
               {match.awayScore}
+            </span>
+          )}
+          {hasPenalties && (
+            <span className="text-xs text-gray-500">
+              ({match.awayPenalties})
             </span>
           )}
         </div>

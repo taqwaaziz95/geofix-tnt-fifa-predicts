@@ -22,6 +22,9 @@ export interface Match {
   awayTeam: Team;
   homeScore?: number;
   awayScore?: number;
+  homePenalties?: number;
+  awayPenalties?: number;
+  extraTime?: boolean;
   date: string; // ISO string
   status: MatchStatus;
   stage: MatchStage;
