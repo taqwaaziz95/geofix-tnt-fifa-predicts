@@ -258,7 +258,7 @@ export default function HomePage() {
                       }
                     : undefined
                 }
-                onPredict={setActiveModal}
+                onPredict={predictions[match.id] ? undefined : setActiveModal}
                 index={i}
               />
             ))

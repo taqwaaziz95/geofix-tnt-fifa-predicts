@@ -194,14 +194,9 @@ export default function MatchCard({
           {isScheduled && onPredict && (
             <button
               onClick={() => onPredict(match)}
-              className={cn(
-                "text-xs font-bold px-3 py-1.5 rounded-lg transition-all duration-200",
-                hasPrediction
-                  ? "bg-wc-gold/10 text-wc-gold border border-wc-gold/30 hover:bg-wc-gold/20"
-                  : "bg-wc-gold text-wc-navy hover:bg-wc-gold-light",
-              )}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all duration-200 bg-wc-gold text-wc-navy hover:bg-wc-gold-light"
             >
-              {hasPrediction ? "Edit" : "Predict"}
+              Predict
             </button>
           )}
 
