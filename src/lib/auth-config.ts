@@ -34,4 +34,9 @@ export const PLAYER_ROSTER: Record<
   dausman: { displayName: "Dausman", avatar: "💎", playerId: "dausman" },
   ajibray: { displayName: "Aji Bray", avatar: "🎯", playerId: "aji" },
   wawa: { displayName: "Wawa", avatar: "🌊", playerId: "wawa" },
+  ahmadsyams: {
+    displayName: "Ahmad Syams",
+    avatar: "🆕",
+    playerId: "ahmadsyams",
+  },
 };

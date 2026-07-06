@@ -203,7 +203,9 @@ async function seedPlayerPredictions(player) {
     uid = userRecord.uid;
   } catch (err) {
     if (err.code === "auth/user-not-found") {
-      console.error(`  ⚠️  ${player.username} — user not found in Auth, skipping`);
+      console.error(
+        `  ⚠️  ${player.username} — user not found in Auth, skipping`,
+      );
       return false;
     }
     throw err;
