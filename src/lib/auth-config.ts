@@ -39,4 +39,5 @@ export const PLAYER_ROSTER: Record<
     avatar: "🆕",
     playerId: "ahmadsyams",
   },
+  uchupis: { displayName: "Ucups", avatar: "🆕", playerId: "uchupis" },
 };
