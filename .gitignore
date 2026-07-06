@@ -6,6 +6,10 @@
 .pnp.js
 .yarn/install-state.gz
 
+# Firebase service account — NEVER commit this
+/scripts/serviceAccountKey.json
+/scripts/*.json
+
 # testing
 /coverage
 
