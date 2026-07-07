@@ -192,11 +192,27 @@ export async function GET() {
 
     const r16AllFinished = recentR16.length >= 8;
 
-    // QF matches with resolved team names from API
+    // QF / SF / Final matches with resolved team names
     const qfMatches = raw
       .filter((m) => m.group === "QF")
       .map(mapMatch)
       .sort((a, b) => a.localDate.localeCompare(b.localDate));
+
+    const sfMatches = raw
+      .filter((m) => m.group === "SF")
+      .map(mapMatch)
+      .sort((a, b) => a.localDate.localeCompare(b.localDate));
+
+    const finalMatches = raw
+      .filter((m) => m.group === "FINAL" || m.group === "3RD")
+      .map(mapMatch)
+      .sort((a, b) => a.localDate.localeCompare(b.localDate));
+
+    // All knockout matches indexed by id for bracket merging
+    const allByApiId: Record<string, (typeof qfMatches)[0]> = {};
+    [...raw.map(mapMatch)].forEach((m) => {
+      allByApiId[m.id] = m;
+    });
 
     return NextResponse.json(
       {
@@ -206,6 +222,9 @@ export async function GET() {
         r32Results,
         r16AllFinished,
         qfMatches,
+        sfMatches,
+        finalMatches,
+        allByApiId,
         fetchedAt: new Date().toISOString(),
       },
       {

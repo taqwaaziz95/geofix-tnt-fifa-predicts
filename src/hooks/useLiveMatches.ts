@@ -10,6 +10,9 @@ interface LiveMatchesResponse {
   r32Results: LiveMatch[];
   r16AllFinished: boolean;
   qfMatches: LiveMatch[];
+  sfMatches: LiveMatch[];
+  finalMatches: LiveMatch[];
+  allByApiId: Record<string, LiveMatch>;
   fetchedAt: string;
 }
 
@@ -41,6 +44,9 @@ export function useLiveMatches() {
     r32Results: data?.r32Results ?? [],
     r16AllFinished: data?.r16AllFinished ?? false,
     qfMatches: data?.qfMatches ?? [],
+    sfMatches: data?.sfMatches ?? [],
+    finalMatches: data?.finalMatches ?? [],
+    allByApiId: data?.allByApiId ?? {},
     fetchedAt: data?.fetchedAt ?? null,
     isLoading,
     isError: !!error,

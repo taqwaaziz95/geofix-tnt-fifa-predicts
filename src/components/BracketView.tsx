@@ -1,27 +1,137 @@
 "use client";
 
+import { useMemo } from "react";
 import { Match } from "@/types";
 import { cn } from "@/lib/utils";
+import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
+import {
+  R32_MATCHES,
+  R16_MATCHES,
+  QF_MATCHES,
+  SF_MATCHES,
+  FINAL_MATCHES,
+} from "@/data/matches";
 
-interface BracketMatchProps {
-  match: Match;
+// Extract trailing number: "r16-m89" → "89", "third-place-m103" → "103"
+function numId(staticId: string): string {
+  return staticId.match(/(\d+)$/)?.[1] ?? staticId;
 }
 
-function BracketMatch({ match }: BracketMatchProps) {
+function mergeMatch(sm: Match, api: LiveMatch | undefined): Match {
+  if (!api) return sm;
+  const homeTeam =
+    api.homeTeam && api.homeTeam !== "undefined"
+      ? {
+          ...sm.homeTeam,
+          name: api.homeTeam,
+          code: api.homeTeam.slice(0, 3).toUpperCase(),
+          flag: api.homeFlag,
+        }
+      : sm.homeTeam;
+  const awayTeam =
+    api.awayTeam && api.awayTeam !== "undefined"
+      ? {
+          ...sm.awayTeam,
+          name: api.awayTeam,
+          code: api.awayTeam.slice(0, 3).toUpperCase(),
+          flag: api.awayFlag,
+        }
+      : sm.awayTeam;
+  const status: Match["status"] =
+    api.status === "live"
+      ? "LIVE"
+      : api.status === "finished"
+        ? "FINISHED"
+        : "SCHEDULED";
+  return {
+    ...sm,
+    homeTeam,
+    awayTeam,
+    status,
+    homeScore: api.status !== "notstarted" ? api.homeScore : sm.homeScore,
+    awayScore: api.status !== "notstarted" ? api.awayScore : sm.awayScore,
+    homePenalties: api.homePenaltyScore ?? sm.homePenalties,
+    awayPenalties: api.awayPenaltyScore ?? sm.awayPenalties,
+  };
+}
+
+const BIG_TEAMS = new Set([
+  "Brazil",
+  "Germany",
+  "Argentina",
+  "France",
+  "England",
+  "Spain",
+  "Portugal",
+  "Netherlands",
+  "Belgium",
+  "Italy",
+]);
+const UPSET_COLORS = [
+  "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  "bg-red-500/15 text-red-400 border-red-500/30",
+  "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+  "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+];
+
+function detectUpsets(matches: LiveMatch[]) {
+  let ci = 0;
+  return matches
+    .filter((m) => m.status === "finished")
+    .flatMap((m) => {
+      const homeWon =
+        m.homePenaltyScore !== null
+          ? (m.homePenaltyScore ?? 0) > (m.awayPenaltyScore ?? 0)
+          : m.homeScore > m.awayScore;
+      const winner = homeWon ? m.homeTeam : m.awayTeam;
+      const loser = homeWon ? m.awayTeam : m.homeTeam;
+      const winnerFlag = homeWon ? m.homeFlag : m.awayFlag;
+      if (!BIG_TEAMS.has(loser) || BIG_TEAMS.has(winner)) return [];
+      const stageLabel =
+        m.stage === "R32"
+          ? "R32"
+          : m.stage === "R16"
+            ? "R16"
+            : m.stage === "QF"
+              ? "QF"
+              : "";
+      return [
+        {
+          flag: winnerFlag,
+          text: `${winner} eliminated ${loser}${stageLabel ? ` (${stageLabel})` : ""}!`,
+          color: UPSET_COLORS[ci++ % UPSET_COLORS.length],
+        },
+      ];
+    });
+}
+
+function BracketMatch({ match }: { match: Match }) {
   const isFinished = match.status === "FINISHED";
+  const isLive = match.status === "LIVE";
   const hasPenalties =
-    isFinished && match.homePenalties != null && match.awayPenalties != null;
+    (isFinished || isLive) &&
+    match.homePenalties != null &&
+    match.awayPenalties != null;
   const homeWon =
-    isFinished &&
+    (isFinished || isLive) &&
     (hasPenalties
-      ? match.homePenalties! > match.awayPenalties!
-      : match.homeScore! > match.awayScore!);
+      ? (match.homePenalties ?? 0) > (match.awayPenalties ?? 0)
+      : (match.homeScore ?? 0) > (match.awayScore ?? 0));
   const awayWon =
-    isFinished &&
+    (isFinished || isLive) &&
     (hasPenalties
-      ? match.awayPenalties! > match.homePenalties!
-      : match.awayScore! > match.homeScore!);
-  const isTBD = match.homeTeam.id.startsWith("tbd");
+      ? (match.awayPenalties ?? 0) > (match.homePenalties ?? 0)
+      : (match.awayScore ?? 0) > (match.homeScore ?? 0));
+
+  // TBD = API hasn't resolved the team name yet (id still tbd-* AND name is still a placeholder)
+  const homeTBD =
+    match.homeTeam.name.startsWith("Winner") ||
+    match.homeTeam.name.startsWith("Loser");
+  const awayTBD =
+    match.awayTeam.name.startsWith("Winner") ||
+    match.awayTeam.name.startsWith("Loser");
+  const isTBD = homeTBD && awayTBD; // only full-TBD gets the placeholder card
 
   if (isTBD && !isFinished) {
     return (
@@ -36,11 +146,20 @@ function BracketMatch({ match }: BracketMatchProps) {
     <div
       className={cn(
         "bg-white/5 border rounded-xl overflow-hidden min-w-[170px]",
-        match.status === "LIVE" ? "border-wc-gold/50" : "border-white/15",
+        isLive
+          ? "border-wc-red/60 shadow-[0_0_12px_rgba(255,71,87,0.2)]"
+          : "border-white/15",
       )}
     >
-      <div className="px-2 py-1 bg-white/5 text-center">
+      {/* Label row + live pulse */}
+      <div className="px-2 py-1 bg-white/5 text-center flex items-center justify-center gap-1.5">
         <span className="text-xs text-gray-500 font-medium">{match.label}</span>
+        {isLive && (
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-wc-red opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-wc-red" />
+          </span>
+        )}
       </div>
       <div className="p-2 space-y-1.5">
         {/* Home team */}
@@ -54,12 +173,16 @@ function BracketMatch({ match }: BracketMatchProps) {
           <span
             className={cn(
               "flex-1 text-sm font-semibold truncate",
-              homeWon ? "text-wc-gold" : "text-gray-300",
+              homeWon
+                ? "text-wc-gold"
+                : homeTBD
+                  ? "text-gray-500"
+                  : "text-gray-300",
             )}
           >
-            {match.homeTeam.code}
+            {homeTBD ? match.homeTeam.name : match.homeTeam.code}
           </span>
-          {isFinished && (
+          {(isFinished || isLive) && match.homeScore !== undefined && (
             <span
               className={cn(
                 "font-display font-bold text-base w-5 text-center",
@@ -86,12 +209,16 @@ function BracketMatch({ match }: BracketMatchProps) {
           <span
             className={cn(
               "flex-1 text-sm font-semibold truncate",
-              awayWon ? "text-wc-gold" : "text-gray-300",
+              awayWon
+                ? "text-wc-gold"
+                : awayTBD
+                  ? "text-gray-500"
+                  : "text-gray-300",
             )}
           >
-            {match.awayTeam.code}
+            {awayTBD ? match.awayTeam.name : match.awayTeam.code}
           </span>
-          {isFinished && (
+          {(isFinished || isLive) && match.awayScore !== undefined && (
             <span
               className={cn(
                 "font-display font-bold text-base w-5 text-center",
@@ -142,57 +269,93 @@ function BracketRound({
   );
 }
 
-import {
-  R32_MATCHES,
-  R16_MATCHES,
-  QF_MATCHES,
-  SF_MATCHES,
-  FINAL_MATCHES,
-} from "@/data/matches";
-
 export default function BracketView() {
+  const { allByApiId, r32Results, recentR16, isLoading } = useLiveMatches();
+
+  const r32 = useMemo(
+    () => R32_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    [allByApiId],
+  );
+  const r16 = useMemo(
+    () => R16_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    [allByApiId],
+  );
+  const qf = useMemo(
+    () => QF_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    [allByApiId],
+  );
+  const sf = useMemo(
+    () => SF_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    [allByApiId],
+  );
+  const finals = useMemo(
+    () => FINAL_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    [allByApiId],
+  );
+
+  const upsets = useMemo(
+    () => detectUpsets([...r32Results, ...recentR16]),
+    [r32Results, recentR16],
+  );
+
   return (
-    <div className="overflow-x-auto pb-4">
-      <div className="flex gap-6 min-w-max px-4">
-        {/* R32 — split into two halves for readability */}
-        <BracketRound
-          label="Round of 32 (1–8)"
-          matches={R32_MATCHES.slice(0, 8)}
-          stageColor="text-gray-500"
-        />
-        <BracketRound
-          label="Round of 32 (9–16)"
-          matches={R32_MATCHES.slice(8)}
-          stageColor="text-gray-500"
-        />
+    <div className="space-y-4">
+      {!isLoading && (
+        <div className="flex items-center gap-2 px-4 text-xs text-gray-500">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-wc-green opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-wc-green" />
+          </span>
+          Live bracket · updates every 5 min
+        </div>
+      )}
 
-        {/* R16 */}
-        <BracketRound
-          label="Round of 16"
-          matches={R16_MATCHES}
-          stageColor="text-wc-blue"
-        />
+      {/* {upsets.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-4">
+          {upsets.map((u) => (
+            <span
+              key={u.text}
+              className={`text-xs px-3 py-1.5 rounded-full border font-medium ${u.color}`}
+            >
+              {u.flag} {u.text}
+            </span>
+          ))}
+        </div>
+      )} */}
 
-        {/* QF */}
-        <BracketRound
-          label="Quarter-finals"
-          matches={QF_MATCHES}
-          stageColor="text-wc-purple"
-        />
-
-        {/* SF */}
-        <BracketRound
-          label="Semi-finals"
-          matches={SF_MATCHES}
-          stageColor="text-wc-gold"
-        />
-
-        {/* Final */}
-        <BracketRound
-          label="Final"
-          matches={FINAL_MATCHES}
-          stageColor="text-wc-gold"
-        />
+      <div className="overflow-x-auto pb-4">
+        <div className="flex gap-6 min-w-max px-4">
+          <BracketRound
+            label="Round of 32 (1–8)"
+            matches={r32.slice(0, 8)}
+            stageColor="text-gray-500"
+          />
+          <BracketRound
+            label="Round of 32 (9–16)"
+            matches={r32.slice(8)}
+            stageColor="text-gray-500"
+          />
+          <BracketRound
+            label="Round of 16"
+            matches={r16}
+            stageColor="text-wc-blue"
+          />
+          <BracketRound
+            label="Quarter-finals"
+            matches={qf}
+            stageColor="text-wc-purple"
+          />
+          <BracketRound
+            label="Semi-finals"
+            matches={sf}
+            stageColor="text-wc-gold"
+          />
+          <BracketRound
+            label="Final"
+            matches={finals}
+            stageColor="text-wc-gold"
+          />
+        </div>
       </div>
     </div>
   );

@@ -35,43 +35,7 @@ export default function BracketPage() {
           </div>
         </motion.div>
 
-        {/* Upset alerts */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="flex flex-wrap gap-2 mt-3"
-        >
-          {[
-            {
-              flag: "🇵🇾",
-              text: "Paraguay upset Germany in R32!",
-              color: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-            },
-            {
-              flag: "🇲🇦",
-              text: "Morocco ousted Netherlands!",
-              color: "bg-red-500/15 text-red-400 border-red-500/30",
-            },
-            {
-              flag: "🇳🇴",
-              text: "Norway eliminated Brazil!",
-              color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-            },
-            {
-              flag: "🇪🇬",
-              text: "Egypt beat Australia!",
-              color: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-            },
-          ].map((alert) => (
-            <span
-              key={alert.text}
-              className={`text-xs px-3 py-1.5 rounded-full border font-medium ${alert.color}`}
-            >
-              {alert.flag} {alert.text}
-            </span>
-          ))}
-        </motion.div>
+        {/* Upset alerts are now rendered inside BracketView dynamically */}
       </div>
 
       {/* Bracket */}
