@@ -1,4 +1,5 @@
 import useSWR from "swr";
+import { useEffect, useRef } from "react";
 import type { LiveMatch } from "@/app/api/live-matches/route";
 
 export type { LiveMatch };
@@ -22,7 +23,10 @@ const fetcher = (url: string) =>
     return r.json() as Promise<LiveMatchesResponse>;
   });
 
-/** Polls /api/live-matches every 5 min normally, 30 s when a game is live. */
+/** Polls /api/live-matches every 5 min normally, 30 s when a game is live.
+ *  Automatically calls /api/score-matches whenever new finished matches are
+ *  detected (compares against a session-level count stored in sessionStorage).
+ */
 export function useLiveMatches() {
   const { data, error, isLoading } = useSWR<LiveMatchesResponse>(
     "/api/live-matches",
@@ -36,6 +40,33 @@ export function useLiveMatches() {
       dedupingInterval: 20_000,
     },
   );
+
+  // Auto-trigger scoring when new finished knockout matches appear
+  const scoringRef = useRef(false);
+  useEffect(() => {
+    if (!data || scoringRef.current) return;
+
+    const allByApiId = data.allByApiId ?? {};
+    const finishedCount = Object.values(allByApiId).filter(
+      (m) => m.status === "finished" && parseInt(m.id) >= 89,
+    ).length;
+    if (finishedCount === 0) return;
+
+    const key = "scored_ko_count";
+    const cached = parseInt(sessionStorage.getItem(key) ?? "0");
+    if (finishedCount <= cached) return;
+
+    scoringRef.current = true;
+    sessionStorage.setItem(key, String(finishedCount));
+
+    fetch("/api/score-matches", { method: "POST" })
+      .then((r) => r.json())
+      .then((result) => console.log("[score-matches]", result))
+      .catch((e) => console.warn("[score-matches] failed:", e))
+      .finally(() => {
+        scoringRef.current = false;
+      });
+  }, [data]);
 
   return {
     live: data?.live ?? [],

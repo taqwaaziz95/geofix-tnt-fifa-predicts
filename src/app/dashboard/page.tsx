@@ -1,20 +1,23 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { PLAYERS } from "@/data/players";
 import {
-  ALL_KNOCKOUT_MATCHES,
   R32_MATCHES,
   R16_MATCHES,
   QF_MATCHES,
   SF_MATCHES,
   FINAL_MATCHES,
 } from "@/data/matches";
+import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
+import { useLiveMatches } from "@/hooks/useLiveMatches";
+import type { LiveMatch } from "@/hooks/useLiveMatches";
 import { STADIUMS, TOTAL_STADIUM_CAPACITY } from "@/data/stadiums";
 import { getConfederationStats, getContinentStats } from "@/data/tournament";
 import { cn } from "@/lib/utils";
+import type { Match } from "@/types";
 import {
   LogIn,
   Trophy,
@@ -30,11 +33,55 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+// ─── Helper: numeric ID from static match ID ────────────────────────────────
+const numId = (id: string) => id.match(/(\d+)$/)?.[1] ?? "";
+
+// ─── Helper: merge API match data into a static Match object ─────────────────
+function mergeApiMatch(m: Match, allByApiId: Record<string, LiveMatch>): Match {
+  const api = allByApiId[numId(m.id)];
+  if (!api || api.status === "notstarted") return m;
+  return {
+    ...m,
+    homeScore: api.homeScore,
+    awayScore: api.awayScore,
+    homePenalties: api.homePenaltyScore ?? undefined,
+    awayPenalties: api.awayPenaltyScore ?? undefined,
+    extraTime: api.homePenaltyScore !== null,
+    status:
+      api.status === "finished"
+        ? "FINISHED"
+        : api.status === "live"
+          ? "LIVE"
+          : m.status,
+  };
+}
+
 // ─── Helper: compute stats dynamically ───────────────────────────────────────
 
-function useDashboardStats() {
+function useDashboardStats(
+  firestoreUsers: FirestoreUser[],
+  allByApiId: Record<string, LiveMatch>,
+) {
   return useMemo(() => {
-    const players = [...PLAYERS].sort((a, b) => b.totalPoints - a.totalPoints);
+    // Use live Firestore data if available, fall back to static PLAYERS
+    const players = (
+      firestoreUsers.length > 0
+        ? firestoreUsers.map((u) => ({
+            id: u.playerId ?? u.uid,
+            name: u.displayName,
+            avatar: u.avatar,
+            groupPoints: u.groupPoints ?? 0,
+            knockoutPoints: u.knockoutPoints ?? 0,
+            totalPoints: u.totalPoints ?? 0,
+            correctPredictions: u.correctPredictions ?? 0,
+            r32Points: u.r32Points ?? 0,
+            r16Points: u.r16Points ?? 0,
+            qfPoints: u.qfPoints ?? 0,
+            sfPoints: u.sfPoints ?? 0,
+            finalPoints: u.finalPoints ?? 0,
+          }))
+        : [...PLAYERS]
+    ).sort((a, b) => b.totalPoints - a.totalPoints);
     const totalPlayers = players.length;
 
     // Top scorer
@@ -45,9 +92,22 @@ function useDashboardStats() {
       players.reduce((s, p) => s + p.totalPoints, 0) / totalPlayers,
     );
 
+    // Merge live API data into R16+ matches (computed early so other stats can use them)
+    const mergedR16 = R16_MATCHES.map((m) => mergeApiMatch(m, allByApiId));
+    const mergedQF = QF_MATCHES.map((m) => mergeApiMatch(m, allByApiId));
+    const mergedSF = SF_MATCHES.map((m) => mergeApiMatch(m, allByApiId));
+    const mergedFinal = FINAL_MATCHES.map((m) => mergeApiMatch(m, allByApiId));
+    const allKnockout = [
+      ...R32_MATCHES,
+      ...mergedR16,
+      ...mergedQF,
+      ...mergedSF,
+      ...mergedFinal,
+    ];
+
     // Average completion (predictions made / total matches available)
-    const totalFinished = ALL_KNOCKOUT_MATCHES.filter(
-      (m) => m.status === "FINISHED",
+    const totalFinished = allKnockout.filter(
+      (m) => m.status === "FINISHED" || m.status === "LIVE",
     ).length;
     const totalPossiblePredictions = totalFinished * totalPlayers;
     const totalCorrectPredictions = players.reduce(
@@ -90,10 +150,10 @@ function useDashboardStats() {
     }));
 
     // Match results stats
-    const finishedKnockout = ALL_KNOCKOUT_MATCHES.filter(
-      (m) => m.status === "FINISHED",
+    const finishedKnockout = allKnockout.filter(
+      (m) => m.status === "FINISHED" || m.status === "LIVE",
     );
-    const scheduledKnockout = ALL_KNOCKOUT_MATCHES.filter(
+    const scheduledKnockout = allKnockout.filter(
       (m) => m.status === "SCHEDULED",
     );
     const totalGoals = finishedKnockout.reduce(
@@ -126,17 +186,19 @@ function useDashboardStats() {
     });
 
     const eliminatedInR16 = new Set<string>();
-    R16_MATCHES.filter((m) => m.status === "FINISHED").forEach((m) => {
-      if (m.homePenalties != null) {
-        if (m.homePenalties < m.awayPenalties!)
+    mergedR16
+      .filter((m) => m.status === "FINISHED" || m.status === "LIVE")
+      .forEach((m) => {
+        if (m.homePenalties != null) {
+          if (m.homePenalties < m.awayPenalties!)
+            eliminatedInR16.add(m.homeTeam.name);
+          else eliminatedInR16.add(m.awayTeam.name);
+        } else if (m.homeScore! > m.awayScore!) {
+          eliminatedInR16.add(m.awayTeam.name);
+        } else {
           eliminatedInR16.add(m.homeTeam.name);
-        else eliminatedInR16.add(m.awayTeam.name);
-      } else if (m.homeScore! > m.awayScore!) {
-        eliminatedInR16.add(m.awayTeam.name);
-      } else {
-        eliminatedInR16.add(m.homeTeam.name);
-      }
-    });
+        }
+      });
 
     const teamsStillIn = 48 - eliminatedInR32.size - eliminatedInR16.size;
 
@@ -161,8 +223,12 @@ function useDashboardStats() {
       teamsStillIn,
       confedStats,
       continentStats,
+      mergedR16,
+      mergedQF,
+      mergedSF,
+      mergedFinal,
     };
-  }, []);
+  }, [firestoreUsers, allByApiId]);
 }
 
 // ─── Components ──────────────────────────────────────────────────────────────
@@ -356,7 +422,15 @@ function MiniTable({
 
 export default function DashboardPage() {
   const { user, profile, loading } = useAuth();
-  const stats = useDashboardStats();
+  const [firestoreUsers, setFirestoreUsers] = useState<FirestoreUser[]>([]);
+  const { allByApiId } = useLiveMatches();
+
+  useEffect(() => {
+    const unsub = subscribeToLeaderboard((users) => setFirestoreUsers(users));
+    return unsub;
+  }, []);
+
+  const stats = useDashboardStats(firestoreUsers, allByApiId);
 
   if (loading) {
     return (
@@ -827,22 +901,26 @@ export default function DashboardPage() {
           </h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {/* R32 */}
+          {/* R32 — static (all finished before app launched) */}
           <RoundResultsCard
             title="Round of 32"
             matches={R32_MATCHES}
             color="text-gray-400"
           />
-          {/* R16 */}
+          {/* R16 — live API data */}
           <RoundResultsCard
             title="Round of 16"
-            matches={R16_MATCHES}
+            matches={stats.mergedR16}
             color="text-sky-400"
           />
-          {/* QF+ */}
+          {/* QF+ — live API data */}
           <RoundResultsCard
             title="QF / SF / Final"
-            matches={[...QF_MATCHES, ...SF_MATCHES, ...FINAL_MATCHES]}
+            matches={[
+              ...stats.mergedQF,
+              ...stats.mergedSF,
+              ...stats.mergedFinal,
+            ]}
             color="text-wc-gold"
           />
         </div>
@@ -862,7 +940,9 @@ function RoundResultsCard({
   matches: typeof R32_MATCHES;
   color: string;
 }) {
-  const finished = matches.filter((m) => m.status === "FINISHED");
+  const finished = matches.filter(
+    (m) => m.status === "FINISHED" || m.status === "LIVE",
+  );
   const scheduled = matches.filter((m) => m.status === "SCHEDULED");
 
   return (
