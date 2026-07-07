@@ -2,8 +2,14 @@
 
 import { motion } from "framer-motion";
 import { Match, Prediction } from "@/types";
-import { formatMatchDate, getStageLabel, getStagePts, cn } from "@/lib/utils";
-import { Clock, CheckCircle2, XCircle, Lock } from "lucide-react";
+import {
+  formatMatchDateWIB,
+  isMatchLockedByTime,
+  getStageLabel,
+  getStagePts,
+  cn,
+} from "@/lib/utils";
+import { CheckCircle2, XCircle, Lock, Clock } from "lucide-react";
 
 interface MatchCardProps {
   match: Match;
@@ -26,6 +32,11 @@ export default function MatchCard({
   const isLive = match.status === "LIVE";
   const isScheduled = match.status === "SCHEDULED";
   const hasPrediction = !!prediction;
+
+  // Lock 1 hour before kickoff (also covers live & finished)
+  const timeLocked = isMatchLockedByTime(match.date);
+  const canPredict =
+    isScheduled && !timeLocked && !!onPredict && !hasPrediction;
 
   const predictedWinner = prediction?.winner;
   const hasPenalties =
@@ -60,7 +71,7 @@ export default function MatchCard({
         isLive && "border-wc-gold/40 gold-glow",
       )}
     >
-      {/* Stage badge */}
+      {/* Stage badge + time */}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs text-gray-500 font-medium">
           {getStageLabel(match.stage)} · {match.label}
@@ -77,12 +88,20 @@ export default function MatchCard({
               FT
             </span>
           )}
-          {isScheduled && (
-            <span className="flex items-center gap-1 text-xs text-gray-500">
-              <Clock size={11} />
-              {formatMatchDate(match.date)}
-            </span>
-          )}
+          {isScheduled &&
+            (() => {
+              const { utc, wib, date: d } = formatMatchDateWIB(match.date);
+              return (
+                <div className="text-right">
+                  <p className="text-[11px] text-gray-400 leading-tight">{d}</p>
+                  <p className="text-[11px] text-gray-500 leading-tight">
+                    {utc}
+                    <span className="mx-1 text-gray-700">·</span>
+                    <span className="text-wc-blue/80">{wib}</span>
+                  </p>
+                </div>
+              );
+            })()}
         </div>
       </div>
 
@@ -169,8 +188,24 @@ export default function MatchCard({
               </span>
             </span>
           )}
-          {!hasPrediction && isScheduled && (
-            <span className="text-xs text-gray-600 italic">No prediction</span>
+          {/* Not predicted on a finished match */}
+          {!hasPrediction && isFinished && (
+            <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-gray-700/50 text-gray-500 italic">
+              <XCircle size={11} />
+              Not Predicted
+            </span>
+          )}
+          {/* Upcoming but prediction window closed */}
+          {!hasPrediction && isScheduled && timeLocked && (
+            <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-wc-red/10 text-wc-red/70 italic">
+              <Lock size={10} />
+              Not Predicted
+            </span>
+          )}
+          {!hasPrediction && isScheduled && !timeLocked && (
+            <span className="text-xs text-gray-600 italic">
+              No prediction yet
+            </span>
           )}
         </div>
 
@@ -185,29 +220,39 @@ export default function MatchCard({
               +0 pts
             </span>
           )}
-          {!showPoints && pointsForStage > 0 && isScheduled && (
+          {!showPoints && pointsForStage > 0 && isScheduled && !timeLocked && (
             <span className="text-xs text-wc-gold/60 font-medium">
               +{pointsForStage} pts if correct
             </span>
           )}
 
-          {isScheduled && onPredict && (
+          {/* Can predict: window open, no prediction yet */}
+          {canPredict && (
             <button
-              onClick={() => onPredict(match)}
+              onClick={() => onPredict!(match)}
               className="text-xs font-bold px-3 py-1.5 rounded-lg transition-all duration-200 bg-wc-gold text-wc-navy hover:bg-wc-gold-light"
             >
               Predict
             </button>
           )}
 
-          {isScheduled && !onPredict && hasPrediction && (
+          {/* Already predicted + window open = locked in */}
+          {hasPrediction && isScheduled && !timeLocked && (
             <span className="flex items-center gap-1 text-xs text-amber-400/80 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20">
               <Lock size={10} />
-              <span className="font-medium">Locked</span>
+              <span className="font-medium">Locked in</span>
             </span>
           )}
 
-          {!isScheduled && !onPredict && (
+          {/* Window closed (live / <1hr / finished) + scheduled */}
+          {isScheduled && timeLocked && (
+            <span className="flex items-center gap-1 text-xs text-wc-red/70 bg-wc-red/10 px-2 py-1 rounded-lg border border-wc-red/20">
+              <Lock size={10} />
+              <span className="font-medium">Closed</span>
+            </span>
+          )}
+
+          {!isScheduled && !hasPrediction && (
             <Lock size={12} className="text-gray-600" />
           )}
         </div>

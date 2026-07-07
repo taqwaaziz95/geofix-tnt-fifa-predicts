@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { R16_MATCHES } from "@/data/matches";
+import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
 import {
   getSeededPredictionsForPlayer,
   isExistingLockedPlayer,
@@ -12,12 +12,60 @@ import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
 import { Match, Prediction } from "@/types";
 import { Target, CheckCircle2, LogIn, Lock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isMatchLockedByTime } from "@/lib/utils";
 import Link from "next/link";
+import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
+
+// ── Merge API live data into static Match objects ─────────────────────────────
+// API IDs "89"…"96" map to static IDs "r16-m89"…"r16-m96"
+// API IDs "97"…"100" map to static IDs "qf-m97"…"qf-m100"
+function numericId(staticId: string): string {
+  return staticId.replace(/^[^-]+-m/, "");
+}
+
+function mergeScores(staticMatches: Match[], apiMatches: LiveMatch[]): Match[] {
+  return staticMatches.map((sm) => {
+    const api = apiMatches.find((a) => a.id === numericId(sm.id));
+    if (!api || api.status !== "finished") return sm;
+    return {
+      ...sm,
+      status: "FINISHED" as const,
+      homeScore: api.homeScore,
+      awayScore: api.awayScore,
+      homePenalties: api.homePenaltyScore ?? undefined,
+      awayPenalties: api.awayPenaltyScore ?? undefined,
+    };
+  });
+}
+
+function mergeQfTeams(
+  staticMatches: Match[],
+  apiMatches: LiveMatch[],
+): Match[] {
+  return staticMatches.map((sm) => {
+    const api = apiMatches.find((a) => a.id === numericId(sm.id));
+    if (!api) return sm;
+    const homeTeam =
+      api.homeTeam && api.homeTeam !== "undefined"
+        ? { ...sm.homeTeam, name: api.homeTeam, flag: api.homeFlag }
+        : sm.homeTeam;
+    const awayTeam =
+      api.awayTeam && api.awayTeam !== "undefined"
+        ? { ...sm.awayTeam, name: api.awayTeam, flag: api.awayFlag }
+        : sm.awayTeam;
+    return { ...sm, homeTeam, awayTeam };
+  });
+}
 
 export default function PredictPage() {
   const { user, profile, predictions, loading } = useAuth();
   const [activeModal, setActiveModal] = useState<Match | null>(null);
+  const [visibleResults, setVisibleResults] = useState(3);
+  const {
+    recentR16,
+    r16AllFinished,
+    qfMatches: apiQfMatches,
+  } = useLiveMatches();
 
   // Determine if this user is an existing player with locked predictions
   const isLocked = useMemo(() => {
@@ -30,6 +78,18 @@ export default function PredictPage() {
     if (!profile || !isLocked) return {};
     return getSeededPredictionsForPlayer(profile.playerId ?? "");
   }, [profile, isLocked]);
+
+  // Merge API scores into static R16 matches (real-time results) — must be before early returns
+  const r16WithApiScores = useMemo(
+    () => mergeScores(R16_MATCHES, recentR16),
+    [recentR16],
+  );
+
+  // QF matches with resolved team names from API — must be before early returns
+  const qfMatchesMerged = useMemo(
+    () => mergeQfTeams(QF_MATCHES, apiQfMatches),
+    [apiQfMatches],
+  );
 
   if (loading) {
     return (
@@ -72,7 +132,10 @@ export default function PredictPage() {
   }
 
   const upcomingMatches = R16_MATCHES.filter((m) => m.status === "SCHEDULED");
-  const finishedMatches = R16_MATCHES.filter((m) => m.status === "FINISHED");
+  // Newest finished matches first
+  const finishedMatches = r16WithApiScores
+    .filter((m) => m.status === "FINISHED")
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   // For existing locked players, use seeded predictions
   // For new users, use their Firestore predictions
@@ -216,16 +279,17 @@ export default function PredictPage() {
             </div>
           )}
           {upcomingMatches.map((match, i) => {
-            // A prediction is locked once submitted — no editing allowed
             const hasPrediction = isLocked
               ? !!seededPreds[match.id]
               : !!predictions[match.id];
+            // Lock if predicted, if <1h to kickoff, or if live/finished
+            const locked = hasPrediction || isMatchLockedByTime(match.date);
             return (
               <MatchCard
                 key={match.id}
                 match={match}
                 prediction={toPrediction(match.id)}
-                onPredict={hasPrediction ? undefined : setActiveModal}
+                onPredict={locked ? undefined : setActiveModal}
                 index={i}
               />
             );
@@ -233,13 +297,16 @@ export default function PredictPage() {
         </div>
       )}
 
-      {/* Finished R16 */}
+      {/* ── Finished R16 Results (API-driven, newest first) ── */}
       {finishedMatches.length > 0 && (
         <div className="space-y-3">
-          <h2 className="font-display text-lg font-bold text-white">
-            R16 Results
+          <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+            ✅ R16 Results
+            <span className="text-sm font-normal text-gray-500">
+              ({finishedMatches.length}/8)
+            </span>
           </h2>
-          {finishedMatches.map((match, i) => (
+          {finishedMatches.slice(0, visibleResults).map((match, i) => (
             <MatchCard
               key={match.id}
               match={match}
@@ -249,6 +316,58 @@ export default function PredictPage() {
               index={i}
             />
           ))}
+          {visibleResults < finishedMatches.length && (
+            <button
+              onClick={() => setVisibleResults((v) => v + 3)}
+              className="w-full glass-card py-2.5 text-sm text-gray-400 hover:text-white hover:border-white/20 transition-colors flex items-center justify-center gap-2"
+            >
+              ↓ Load {Math.min(3, finishedMatches.length - visibleResults)} more
+              results
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── QF Predictions (auto-unlocks when all R16 done) ── */}
+      {r16AllFinished && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 bg-wc-gold/10 border border-wc-gold/30 rounded-xl px-4 py-3">
+            <span className="text-xl">🏆</span>
+            <div>
+              <p className="font-display font-bold text-wc-gold text-sm">
+                Quarter-Finals Unlocked!
+              </p>
+              <p className="text-xs text-gray-400">
+                All R16 matches are done — make your QF predictions now
+              </p>
+            </div>
+          </div>
+
+          <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+            ⚡ Quarter-Final Predictions
+          </h2>
+
+          {qfMatchesMerged.map((match, i) => {
+            const hasPrediction = !!predictions[match.id];
+            const locked = hasPrediction || isMatchLockedByTime(match.date);
+            return (
+              <MatchCard
+                key={match.id}
+                match={match}
+                prediction={
+                  predictions[match.id]
+                    ? {
+                        matchId: match.id,
+                        winner: predictions[match.id].winner,
+                        submittedAt: "",
+                      }
+                    : undefined
+                }
+                onPredict={locked ? undefined : setActiveModal}
+                index={i}
+              />
+            );
+          })}
         </div>
       )}
 

@@ -12,6 +12,9 @@ import { Match } from "@/types";
 import { Trophy, Zap, Target, ChevronRight, LogIn } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import LiveMatchBanner from "@/components/LiveMatchBanner";
+import { ResultsList } from "@/components/ApiResultCard";
+import { useLiveMatches } from "@/hooks/useLiveMatches";
 
 function firestoreUsersToLeaderboard(users: FirestoreUser[]) {
   return [...users]
@@ -42,6 +45,7 @@ export default function HomePage() {
   const [lbUsers, setLbUsers] = useState<FirestoreUser[]>([]);
   const [activeModal, setActiveModal] = useState<Match | null>(null);
   const [lbLoaded, setLbLoaded] = useState(false);
+  const { recentR16, r32Results } = useLiveMatches();
 
   // Real-time leaderboard from Firestore
   useEffect(() => {
@@ -70,6 +74,10 @@ export default function HomePage() {
 
     return (
       <div className="min-h-[calc(100vh-4rem)] bg-mesh flex flex-col items-center justify-center px-4 py-12">
+        {/* Live match banner — visible to everyone */}
+        <div className="w-full max-w-2xl mb-6">
+          <LiveMatchBanner />
+        </div>
         <motion.div
           initial={{ opacity: 0, y: -30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -139,15 +147,15 @@ export default function HomePage() {
   const top5 = leaderboard.slice(0, 5);
   const userEntry = leaderboard.find((e) => e.id === user.uid);
   const upcomingMatches = R16_MATCHES.filter((m) => m.status === "SCHEDULED");
-  const recentMatches = R16_MATCHES.filter(
-    (m) => m.status === "FINISHED",
-  ).slice(-3);
   const predictedCount = upcomingMatches.filter(
     (m) => predictions[m.id],
   ).length;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      {/* Live match banner */}
+      <LiveMatchBanner />
+
       {/* Welcome header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -264,30 +272,22 @@ export default function HomePage() {
             ))
           )}
 
-          {recentMatches.length > 0 && (
-            <>
-              <h2 className="font-display text-lg font-bold text-white flex items-center gap-2 pt-2">
-                ✅ Recent R16 Results
-              </h2>
-              {recentMatches.map((match, i) => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  prediction={
-                    predictions[match.id]
-                      ? {
-                          matchId: match.id,
-                          winner: predictions[match.id].winner,
-                          submittedAt: "",
-                        }
-                      : undefined
-                  }
-                  showPoints
-                  earnedPoints={4}
-                  index={i}
-                />
-              ))}
-            </>
+          {recentR16.length > 0 && (
+            <ResultsList
+              matches={recentR16}
+              title="R16 Results"
+              icon="✅"
+              initialShow={5}
+            />
+          )}
+
+          {r32Results.length > 0 && (
+            <ResultsList
+              matches={r32Results}
+              title="Group Stage Results"
+              icon="📋"
+              initialShow={5}
+            />
           )}
         </div>
 

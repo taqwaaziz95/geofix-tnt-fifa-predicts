@@ -7,6 +7,38 @@ import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import { Trophy, Info } from "lucide-react";
 import { LeaderboardEntry } from "@/types";
+import { cn } from "@/lib/utils";
+
+type StageFilter = "all" | "group" | "r32" | "r16" | "qf" | "sf" | "final";
+
+const STAGE_TABS: { key: StageFilter; label: string }[] = [
+  { key: "all", label: "Overall" },
+  { key: "group", label: "Group" },
+  { key: "r32", label: "R32" },
+  { key: "r16", label: "R16" },
+  { key: "qf", label: "QF" },
+  { key: "sf", label: "Semi" },
+  { key: "final", label: "Final" },
+];
+
+function stagePoints(entry: LeaderboardEntry, stage: StageFilter): number {
+  switch (stage) {
+    case "group":
+      return entry.groupPoints;
+    case "r32":
+      return entry.r32Points;
+    case "r16":
+      return entry.r16Points;
+    case "qf":
+      return entry.qfPoints;
+    case "sf":
+      return entry.sfPoints;
+    case "final":
+      return entry.finalPoints;
+    default:
+      return entry.totalPoints;
+  }
+}
 
 function toLeaderboardEntries(users: FirestoreUser[]): LeaderboardEntry[] {
   return [...users]
@@ -36,6 +68,7 @@ export default function LeaderboardPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<FirestoreUser[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [stage, setStage] = useState<StageFilter>("all");
 
   useEffect(() => {
     const unsub = subscribeToLeaderboard((u) => {
@@ -45,7 +78,16 @@ export default function LeaderboardPage() {
     return unsub;
   }, []);
 
-  const entries = toLeaderboardEntries(users);
+  const allEntries = toLeaderboardEntries(users);
+
+  // Re-rank entries by the selected stage's points
+  const entries =
+    stage === "all"
+      ? allEntries
+      : [...allEntries]
+          .sort((a, b) => stagePoints(b, stage) - stagePoints(a, stage))
+          .map((e, i) => ({ ...e, rank: i + 1 }));
+
   const userEntry = user ? entries.find((e) => e.id === user.uid) : null;
 
   if (!loaded) {
@@ -131,17 +173,58 @@ export default function LeaderboardPage() {
         </motion.div>
       )}
 
-      {/* Full table */}
+      {/* Stage filter + Full table */}
       <div className="glass-card p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display font-bold text-white flex items-center gap-2">
-            <Trophy size={16} className="text-wc-gold" /> Full Rankings
+            <Trophy size={16} className="text-wc-gold" /> Rankings
           </h2>
           <span className="text-xs text-gray-500">
             {entries.length} players · live
           </span>
         </div>
-        <LeaderboardTable entries={entries} highlightId={userEntry?.id} />
+
+        {/* Stage tabs */}
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {STAGE_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setStage(tab.key)}
+              className={cn(
+                "text-xs font-bold px-3 py-1.5 rounded-lg transition-all border",
+                stage === tab.key
+                  ? "bg-wc-gold text-wc-navy border-wc-gold"
+                  : "bg-white/5 text-gray-400 border-white/10 hover:border-white/30 hover:text-white",
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {stage !== "all" && (
+          <p className="text-xs text-gray-500 mb-3 italic">
+            Ranked by {STAGE_TABS.find((t) => t.key === stage)?.label} stage
+            points
+          </p>
+        )}
+
+        {/* Stage not started yet */}
+        {stage !== "all" &&
+        allEntries.every((e) => stagePoints(e, stage) === 0) ? (
+          <div className="py-10 flex flex-col items-center gap-3 text-center">
+            <span className="text-4xl">🔒</span>
+            <p className="font-display font-bold text-white text-lg">
+              Predictions Has Not Started
+            </p>
+            <p className="text-gray-500 text-sm">
+              No {STAGE_TABS.find((t) => t.key === stage)?.label} matches have
+              been played yet. Check back when the stage begins!
+            </p>
+          </div>
+        ) : (
+          <LeaderboardTable entries={entries} highlightId={userEntry?.id} />
+        )}
       </div>
 
       {/* Points breakdown table */}
@@ -154,17 +237,40 @@ export default function LeaderboardPage() {
             <thead>
               <tr className="text-gray-500 text-xs border-b border-white/10">
                 <th className="text-left pb-2 font-medium">Player</th>
-                <th className="text-center pb-2 font-medium">Group</th>
-                <th className="text-center pb-2 font-medium">R32</th>
-                <th className="text-center pb-2 font-medium">R16</th>
-                <th className="text-center pb-2 font-medium">QF</th>
-                <th className="text-right pb-2 font-medium text-wc-gold">
+                {[
+                  { key: "group" as StageFilter, label: "Group" },
+                  { key: "r32" as StageFilter, label: "R32" },
+                  { key: "r16" as StageFilter, label: "R16" },
+                  { key: "qf" as StageFilter, label: "QF" },
+                  { key: "sf" as StageFilter, label: "SF" },
+                  { key: "final" as StageFilter, label: "Final" },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    className={cn(
+                      "text-center pb-2 font-medium cursor-pointer hover:text-white transition-colors",
+                      stage === col.key ? "text-wc-gold" : "",
+                    )}
+                    onClick={() => setStage(col.key)}
+                  >
+                    {col.label}
+                  </th>
+                ))}
+                <th
+                  className={cn(
+                    "text-right pb-2 font-medium cursor-pointer",
+                    stage === "all"
+                      ? "text-wc-gold"
+                      : "text-gray-500 hover:text-white",
+                  )}
+                  onClick={() => setStage("all")}
+                >
                   Total
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {entries.map((entry) => (
+              {allEntries.map((entry) => (
                 <tr
                   key={entry.id}
                   className={entry.id === userEntry?.id ? "bg-wc-gold/5" : ""}
@@ -177,19 +283,34 @@ export default function LeaderboardPage() {
                       </span>
                     </div>
                   </td>
-                  <td className="text-center py-2.5 text-gray-400">
-                    {entry.groupPoints || "—"}
-                  </td>
-                  <td className="text-center py-2.5 text-gray-400">
-                    {entry.r32Points || "—"}
-                  </td>
-                  <td className="text-center py-2.5 text-gray-400">
-                    {entry.r16Points || "—"}
-                  </td>
-                  <td className="text-center py-2.5 text-gray-400">
-                    {entry.qfPoints || "—"}
-                  </td>
-                  <td className="text-right py-2.5 font-display font-bold text-wc-gold">
+                  {(
+                    [
+                      "group",
+                      "r32",
+                      "r16",
+                      "qf",
+                      "sf",
+                      "final",
+                    ] as StageFilter[]
+                  ).map((col) => (
+                    <td
+                      key={col}
+                      className={cn(
+                        "text-center py-2.5",
+                        stage === col
+                          ? "text-wc-gold font-bold"
+                          : "text-gray-400",
+                      )}
+                    >
+                      {stagePoints(entry, col) || "—"}
+                    </td>
+                  ))}
+                  <td
+                    className={cn(
+                      "text-right py-2.5 font-display font-bold",
+                      stage === "all" ? "text-wc-gold" : "text-gray-400",
+                    )}
+                  >
                     {entry.totalPoints}
                   </td>
                 </tr>

@@ -11,6 +11,30 @@ export function formatMatchDate(dateStr: string): string {
   return format(date, "EEE, MMM d · HH:mm") + " UTC";
 }
 
+export function formatMatchDateWIB(dateStr: string): {
+  utc: string;
+  wib: string;
+  date: string;
+} {
+  const date = parseISO(dateStr);
+  const utc = format(date, "HH:mm") + " UTC";
+  const wib =
+    new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Jakarta",
+    }).format(date) + " WIB";
+  const dateLabel = format(date, "EEE, MMM d");
+  return { utc, wib, date: dateLabel };
+}
+
+/** Returns true when the match is within 1 hour of kickoff (or already started). */
+export function isMatchLockedByTime(dateStr: string): boolean {
+  const kickoff = parseISO(dateStr).getTime();
+  return Date.now() >= kickoff - 60 * 60 * 1000;
+}
+
 export function formatMatchDateShort(dateStr: string): string {
   const date = parseISO(dateStr);
   return format(date, "MMM d");
