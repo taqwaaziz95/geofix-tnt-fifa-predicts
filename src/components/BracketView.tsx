@@ -270,7 +270,7 @@ function BracketRound({
 }
 
 export default function BracketView() {
-  const { allByApiId, r32Results, recentR16, isLoading } = useLiveMatches();
+  const { allByApiId, isLoading } = useLiveMatches();
 
   const r32 = useMemo(
     () => R32_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
