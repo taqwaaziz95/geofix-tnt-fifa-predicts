@@ -310,7 +310,7 @@ export default function BracketView() {
         </div>
       )}
 
-      {/* {upsets.length > 0 && (
+      {upsets.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4">
           {upsets.map((u) => (
             <span
@@ -321,7 +321,7 @@ export default function BracketView() {
             </span>
           ))}
         </div>
-      )} */}
+      )}
 
       <div className="overflow-x-auto pb-4">
         <div className="flex gap-6 min-w-max px-4">
