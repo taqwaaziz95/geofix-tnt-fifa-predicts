@@ -55,56 +55,56 @@ function mergeMatch(sm: Match, api: LiveMatch | undefined): Match {
   };
 }
 
-const BIG_TEAMS = new Set([
-  "Brazil",
-  "Germany",
-  "Argentina",
-  "France",
-  "England",
-  "Spain",
-  "Portugal",
-  "Netherlands",
-  "Belgium",
-  "Italy",
-]);
-const UPSET_COLORS = [
-  "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  "bg-red-500/15 text-red-400 border-red-500/30",
-  "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
-  "bg-purple-500/15 text-purple-400 border-purple-500/30",
-  "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-];
+// const BIG_TEAMS = new Set([
+//   "Brazil",
+//   "Germany",
+//   "Argentina",
+//   "France",
+//   "England",
+//   "Spain",
+//   "Portugal",
+//   "Netherlands",
+//   "Belgium",
+//   "Italy",
+// ]);
+// const UPSET_COLORS = [
+//   "bg-orange-500/15 text-orange-400 border-orange-500/30",
+//   "bg-red-500/15 text-red-400 border-red-500/30",
+//   "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+//   "bg-purple-500/15 text-purple-400 border-purple-500/30",
+//   "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+// ];
 
-function detectUpsets(matches: LiveMatch[]) {
-  let ci = 0;
-  return matches
-    .filter((m) => m.status === "finished")
-    .flatMap((m) => {
-      const homeWon =
-        m.homePenaltyScore !== null
-          ? (m.homePenaltyScore ?? 0) > (m.awayPenaltyScore ?? 0)
-          : m.homeScore > m.awayScore;
-      const winner = homeWon ? m.homeTeam : m.awayTeam;
-      const loser = homeWon ? m.awayTeam : m.homeTeam;
-      const winnerFlag = homeWon ? m.homeFlag : m.awayFlag;
-      if (!BIG_TEAMS.has(loser) || BIG_TEAMS.has(winner)) return [];
-      const stageLabel =
-        m.stage === "R32"
-          ? "R32"
-          : m.stage === "R16"
-            ? "R16"
-            : m.stage === "QF"
-              ? "QF"
-              : "";
-      return [
-        {
-          flag: winnerFlag,
-          text: `${winner} eliminated ${loser}${stageLabel ? ` (${stageLabel})` : ""}!`,
-          color: UPSET_COLORS[ci++ % UPSET_COLORS.length],
-        },
-      ];
-    });
-}
+// function detectUpsets(matches: LiveMatch[]) {
+//   let ci = 0;
+//   return matches
+//     .filter((m) => m.status === "finished")
+//     .flatMap((m) => {
+//       const homeWon =
+//         m.homePenaltyScore !== null
+//           ? (m.homePenaltyScore ?? 0) > (m.awayPenaltyScore ?? 0)
+//           : m.homeScore > m.awayScore;
+//       const winner = homeWon ? m.homeTeam : m.awayTeam;
+//       const loser = homeWon ? m.awayTeam : m.homeTeam;
+//       const winnerFlag = homeWon ? m.homeFlag : m.awayFlag;
+//       if (!BIG_TEAMS.has(loser) || BIG_TEAMS.has(winner)) return [];
+//       const stageLabel =
+//         m.stage === "R32"
+//           ? "R32"
+//           : m.stage === "R16"
+//             ? "R16"
+//             : m.stage === "QF"
+//               ? "QF"
+//               : "";
+//       return [
+//         {
+//           flag: winnerFlag,
+//           text: `${winner} eliminated ${loser}${stageLabel ? ` (${stageLabel})` : ""}!`,
+//           color: UPSET_COLORS[ci++ % UPSET_COLORS.length],
+//         },
+//       ];
+//     });
+// }
 
 function BracketMatch({ match }: { match: Match }) {
   const isFinished = match.status === "FINISHED";
@@ -293,10 +293,10 @@ export default function BracketView() {
     [allByApiId],
   );
 
-  const upsets = useMemo(
-    () => detectUpsets([...r32Results, ...recentR16]),
-    [r32Results, recentR16],
-  );
+  // const upsets = useMemo(
+  //   () => detectUpsets([...r32Results, ...recentR16]),
+  //   [r32Results, recentR16],
+  // );
 
   return (
     <div className="space-y-4">
@@ -310,7 +310,7 @@ export default function BracketView() {
         </div>
       )}
 
-      {upsets.length > 0 && (
+      {/* {upsets.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4">
           {upsets.map((u) => (
             <span
@@ -321,7 +321,7 @@ export default function BracketView() {
             </span>
           ))}
         </div>
-      )}
+      )} */}
 
       <div className="overflow-x-auto pb-4">
         <div className="flex gap-6 min-w-max px-4">
