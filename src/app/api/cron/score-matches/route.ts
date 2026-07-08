@@ -10,7 +10,7 @@
  *   Header: Authorization: Bearer <CRON_SECRET>
  *
  * Recommended schedule:
- *   - Every 5 min during tournament days  (*/5 * * * *)
+ *   - Every 5 min during tournament days  (star/5 * * * *)
  *   - Every 2 min when matches are live   (add a second job with tighter schedule)
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -96,7 +96,10 @@ export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     console.error("[cron/score-matches] CRON_SECRET env var is not set");
-    return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server misconfiguration" },
+      { status: 500 },
+    );
   }
 
   const authHeader = request.headers.get("authorization") ?? "";
