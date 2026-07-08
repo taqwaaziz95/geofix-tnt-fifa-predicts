@@ -156,3 +156,38 @@ export async function awardPointsToUser(
   const userRef = doc(database, "users", uid);
   await updateDoc(userRef, fields as Record<string, unknown>);
 }
+
+// ─── Batch fetch predictions for multiple users × match IDs ───────────────────
+
+/**
+ * For each (uid → playerId) pair, reads the prediction doc for every matchId.
+ * Returns { matchId: { playerId: winner } }.
+ */
+export async function fetchPicksForMatches(
+  users: { uid: string; playerId: string }[],
+  matchIds: string[],
+): Promise<Record<string, Record<string, string>>> {
+  const database = db();
+  const result: Record<string, Record<string, string>> = {};
+  matchIds.forEach((id) => (result[id] = {}));
+
+  await Promise.all(
+    users.flatMap(({ uid, playerId }) =>
+      matchIds.map(async (matchId) => {
+        try {
+          const snap = await getDoc(
+            doc(database, "predictions", uid, "matches", matchId),
+          );
+          if (snap.exists()) {
+            const winner = (snap.data() as { winner: string }).winner;
+            if (winner) result[matchId][playerId] = winner;
+          }
+        } catch {
+          // ignore missing prediction
+        }
+      }),
+    ),
+  );
+
+  return result;
+}

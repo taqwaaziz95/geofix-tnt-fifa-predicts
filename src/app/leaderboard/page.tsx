@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
+import {
+  subscribeToLeaderboard,
+  FirestoreUser,
+  fetchPicksForMatches,
+} from "@/lib/firestore";
 import LeaderboardTable from "@/components/LeaderboardTable";
-import { Trophy, Info, Eye } from "lucide-react";
+import { Trophy, Info, Eye, ChevronUp, ChevronDown, Lock } from "lucide-react";
 import { LeaderboardEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import { SEEDED_R16_PREDICTIONS } from "@/data/seeded-predictions";
-import { R16_MATCHES } from "@/data/matches";
+import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
 import { PLAYERS } from "@/data/players";
+import { useLiveMatches } from "@/hooks/useLiveMatches";
 
 type StageFilter = "all" | "group" | "r32" | "r16" | "qf" | "sf" | "final";
 
@@ -69,15 +74,46 @@ function toLeaderboardEntries(users: FirestoreUser[]): LeaderboardEntry[] {
 
 // ── Previously Picked helpers ─────────────────────────────────────────────────
 
-/** Derive winner name from static match data (for FINISHED matches). */
-function matchWinner(matchId: string): string | null {
-  const m = R16_MATCHES.find((x) => x.id === matchId);
-  if (!m || m.status !== "FINISHED") return null;
-  if ((m.homeScore ?? 0) > (m.awayScore ?? 0)) return m.homeTeam.name;
-  if ((m.awayScore ?? 0) > (m.homeScore ?? 0)) return m.awayTeam.name;
-  // Penalties
-  if ((m.homePenalties ?? 0) > (m.awayPenalties ?? 0)) return m.homeTeam.name;
-  if ((m.awayPenalties ?? 0) > (m.homePenalties ?? 0)) return m.awayTeam.name;
+/** Derive winner from static match data first, then fall back to live API. */
+function getWinner(
+  matchId: string,
+  allMatches: typeof R16_MATCHES,
+  allByApiId: Record<
+    string,
+    {
+      status: string;
+      homeTeam: string;
+      awayTeam: string;
+      homeScore: number;
+      awayScore: number;
+      homePenaltyScore: number | null;
+      awayPenaltyScore: number | null;
+    }
+  >,
+): string | null {
+  // Static data (FINISHED)
+  const m = allMatches.find((x) => x.id === matchId);
+  if (m?.status === "FINISHED") {
+    const h = m.homeScore ?? 0,
+      a = m.awayScore ?? 0;
+    const hp = m.homePenalties ?? 0,
+      ap = m.awayPenalties ?? 0;
+    if (h > a) return m.homeTeam.name;
+    if (a > h) return m.awayTeam.name;
+    if (hp > ap) return m.homeTeam.name;
+    if (ap > hp) return m.awayTeam.name;
+  }
+  // Live API fallback
+  const numId = matchId.replace(/^[^-]+-m/, "");
+  const api = allByApiId[numId];
+  if (api?.status === "finished") {
+    if (api.homePenaltyScore !== null && api.awayPenaltyScore !== null)
+      return api.homePenaltyScore > api.awayPenaltyScore
+        ? api.homeTeam
+        : api.awayTeam;
+    if (api.homeScore > api.awayScore) return api.homeTeam;
+    if (api.awayScore > api.homeScore) return api.awayTeam;
+  }
   return null;
 }
 
@@ -93,6 +129,29 @@ function playerFirstName(playerId: string): string {
   return p.name.split(" ")[0];
 }
 
+type SortCol = "group" | "ko" | "r32" | "r16" | "qf" | "sf" | "final" | "total";
+
+function getSortValue(entry: LeaderboardEntry, col: SortCol): number {
+  switch (col) {
+    case "group":
+      return entry.groupPoints;
+    case "ko":
+      return entry.knockoutPoints;
+    case "r32":
+      return entry.r32Points;
+    case "r16":
+      return entry.r16Points;
+    case "qf":
+      return entry.qfPoints;
+    case "sf":
+      return entry.sfPoints;
+    case "final":
+      return entry.finalPoints;
+    default:
+      return entry.totalPoints;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SCORE_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
@@ -102,6 +161,15 @@ export default function LeaderboardPage() {
   const [users, setUsers] = useState<FirestoreUser[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [stage, setStage] = useState<StageFilter>("all");
+  // Breakdown table sort
+  const [sortCol, setSortCol] = useState<SortCol>("total");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  // QF picks fetched from Firestore (matchId → playerId → winner)
+  const [qfPicks, setQfPicks] = useState<
+    Record<string, Record<string, string>>
+  >({});
+
+  const { allByApiId } = useLiveMatches();
 
   // Auto-trigger scoring when the leaderboard page loads.
   // Throttled to once per 5 min via localStorage so it doesn't spam.
@@ -128,6 +196,25 @@ export default function LeaderboardPage() {
     return unsub;
   }, []);
 
+  // Fetch QF predictions for all users when any QF match is within 4h of kickoff
+  const fetchQfPicks = useCallback(async () => {
+    const revealedQf = QF_MATCHES.filter((m) => isPickRevealed(m.date));
+    if (revealedQf.length === 0 || users.length === 0) return;
+    const userList = users.map((u) => ({
+      uid: u.uid,
+      playerId: (u as FirestoreUser & { playerId?: string }).playerId ?? u.uid,
+    }));
+    const picks = await fetchPicksForMatches(
+      userList,
+      revealedQf.map((m) => m.id),
+    );
+    setQfPicks(picks);
+  }, [users]);
+
+  useEffect(() => {
+    fetchQfPicks();
+  }, [fetchQfPicks]);
+
   const allEntries = toLeaderboardEntries(users);
 
   // Re-rank entries by the selected stage's points
@@ -139,6 +226,29 @@ export default function LeaderboardPage() {
           .map((e, i) => ({ ...e, rank: i + 1 }));
 
   const userEntry = user ? entries.find((e) => e.id === user.uid) : null;
+
+  // Breakdown table: independently sortable
+  const sortedBreakdown = [...allEntries].sort((a, b) => {
+    const diff = getSortValue(a, sortCol) - getSortValue(b, sortCol);
+    return sortDir === "desc" ? -diff : diff;
+  });
+
+  function handleSortCol(col: SortCol) {
+    if (col === sortCol) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else {
+      setSortCol(col);
+      setSortDir("desc");
+    }
+  }
+
+  function SortIcon({ col }: { col: SortCol }) {
+    if (col !== sortCol) return <span className="opacity-20 ml-0.5">↕</span>;
+    return sortDir === "desc" ? (
+      <ChevronDown size={12} className="inline ml-0.5 text-wc-gold" />
+    ) : (
+      <ChevronUp size={12} className="inline ml-0.5 text-wc-gold" />
+    );
+  }
 
   if (!loaded) {
     return (
@@ -281,88 +391,89 @@ export default function LeaderboardPage() {
         )}
       </div>
 
-      {/* Points breakdown table */}
+      {/* Points breakdown table — sortable */}
       <div className="glass-card p-5">
-        <h2 className="font-display font-bold text-white mb-3">
+        <h2 className="font-display font-bold text-white mb-1">
           Points Breakdown
         </h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Click any column header to sort ↑↓
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500 text-xs border-b border-white/10">
                 <th className="text-left pb-2 font-medium">Player</th>
-                {[
-                  { key: "group" as StageFilter, label: "Group" },
-                  { key: "r32" as StageFilter, label: "R32" },
-                  { key: "r16" as StageFilter, label: "R16" },
-                  { key: "qf" as StageFilter, label: "QF" },
-                  { key: "sf" as StageFilter, label: "SF" },
-                  { key: "final" as StageFilter, label: "Final" },
-                ].map((col) => (
+                {(
+                  [
+                    { col: "group" as SortCol, label: "Group" },
+                    { col: "ko" as SortCol, label: "KO" },
+                    { col: "r32" as SortCol, label: "R32" },
+                    { col: "r16" as SortCol, label: "R16" },
+                    { col: "qf" as SortCol, label: "QF" },
+                    { col: "sf" as SortCol, label: "SF" },
+                    { col: "final" as SortCol, label: "Final" },
+                    { col: "total" as SortCol, label: "Total" },
+                  ] as { col: SortCol; label: string }[]
+                ).map(({ col, label }) => (
                   <th
-                    key={col.key}
+                    key={col}
+                    onClick={() => handleSortCol(col)}
                     className={cn(
-                      "text-center pb-2 font-medium cursor-pointer hover:text-white transition-colors",
-                      stage === col.key ? "text-wc-gold" : "",
+                      "text-center pb-2 font-medium cursor-pointer select-none transition-colors hover:text-white whitespace-nowrap",
+                      sortCol === col ? "text-wc-gold" : "",
+                      col === "total" ? "text-right" : "",
                     )}
-                    onClick={() => setStage(col.key)}
                   >
-                    {col.label}
+                    {label}
+                    <SortIcon col={col} />
                   </th>
                 ))}
-                <th
-                  className={cn(
-                    "text-right pb-2 font-medium cursor-pointer",
-                    stage === "all"
-                      ? "text-wc-gold"
-                      : "text-gray-500 hover:text-white",
-                  )}
-                  onClick={() => setStage("all")}
-                >
-                  Total
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {allEntries.map((entry) => (
+              {sortedBreakdown.map((entry) => (
                 <tr
                   key={entry.id}
                   className={entry.id === userEntry?.id ? "bg-wc-gold/5" : ""}
                 >
-                  <td className="py-2.5 pr-4">
+                  <td className="py-2.5 pr-3">
                     <div className="flex items-center gap-2">
                       <span>{entry.avatar}</span>
-                      <span className="font-medium text-gray-300 truncate max-w-[120px]">
+                      <span className="font-medium text-gray-300 truncate max-w-[100px]">
                         {entry.name.split(" ")[0]}
                       </span>
                     </div>
                   </td>
                   {(
                     [
-                      "group",
-                      "r32",
-                      "r16",
-                      "qf",
-                      "sf",
-                      "final",
-                    ] as StageFilter[]
-                  ).map((col) => (
+                      { col: "group" as SortCol, val: entry.groupPoints },
+                      { col: "ko" as SortCol, val: entry.knockoutPoints },
+                      { col: "r32" as SortCol, val: entry.r32Points },
+                      { col: "r16" as SortCol, val: entry.r16Points },
+                      { col: "qf" as SortCol, val: entry.qfPoints },
+                      { col: "sf" as SortCol, val: entry.sfPoints },
+                      { col: "final" as SortCol, val: entry.finalPoints },
+                    ] as { col: SortCol; val: number }[]
+                  ).map(({ col, val }) => (
                     <td
                       key={col}
                       className={cn(
-                        "text-center py-2.5",
-                        stage === col
+                        "text-center py-2.5 tabular-nums",
+                        sortCol === col
                           ? "text-wc-gold font-bold"
                           : "text-gray-400",
+                        col === "ko" ? "font-semibold text-blue-300" : "",
+                        sortCol === col && col === "ko" ? "text-wc-gold" : "",
                       )}
                     >
-                      {stagePoints(entry, col) || "—"}
+                      {val || "—"}
                     </td>
                   ))}
                   <td
                     className={cn(
-                      "text-right py-2.5 font-display font-bold",
-                      stage === "all" ? "text-wc-gold" : "text-gray-400",
+                      "text-right py-2.5 font-display font-bold tabular-nums",
+                      sortCol === "total" ? "text-wc-gold" : "text-gray-300",
                     )}
                   >
                     {entry.totalPoints}
@@ -374,123 +485,297 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* ── Previously Picked ───────────────────────────────────────────────── */}
-      {(() => {
-        // Only show matches that are within 4 hours of kickoff (picks revealed)
-        const revealedMatches = R16_MATCHES.filter((m) =>
-          isPickRevealed(m.date),
-        );
-        if (revealedMatches.length === 0) return null;
-
-        return (
-          <div className="glass-card p-5">
-            <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
-              <Eye size={16} className="text-wc-purple" /> R16 Previously Picked
-            </h2>
-            <p className="text-xs text-gray-500 mb-4">
-              Picks revealed 4 h before kickoff · ✅ correct · ❌ wrong · —
-              result pending
-            </p>
-
-            <div className="overflow-x-auto -mx-1 px-1">
-              <table className="w-full text-xs min-w-[500px]">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
-                      Player
+      {/* ── R16 Previously Picked (always open — all matches done) ─────────── */}
+      <div className="glass-card p-5">
+        <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
+          <Eye size={16} className="text-wc-purple" /> R16 Previously Picked
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">
+          All R16 matches finished · ✅ correct · ❌ wrong
+        </p>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-xs min-w-[540px]">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
+                  Player
+                </th>
+                {R16_MATCHES.map((m) => {
+                  const winner = getWinner(m.id, R16_MATCHES, allByApiId);
+                  return (
+                    <th
+                      key={m.id}
+                      className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[60px]"
+                    >
+                      <div className="font-bold text-gray-400">{m.label}</div>
+                      <div className="text-[10px] text-gray-600 font-normal">
+                        {m.homeTeam.flag}v{m.awayTeam.flag}
+                      </div>
+                      {winner ? (
+                        <div className="text-[10px] text-green-400 font-bold mt-0.5">
+                          {winner}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-gray-600 mt-0.5">
+                          TBD
+                        </div>
+                      )}
                     </th>
-                    {revealedMatches.map((m) => {
-                      const winner = matchWinner(m.id);
-                      return (
-                        <th
-                          key={m.id}
-                          className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[64px]"
-                        >
-                          <div>{m.label}</div>
-                          <div className="text-[10px] text-gray-600 font-normal">
-                            {m.homeTeam.flag}v{m.awayTeam.flag}
-                          </div>
-                          {winner && (
-                            <div className="text-[10px] text-wc-green font-bold mt-0.5">
-                              {winner}
-                            </div>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {SEEDED_R16_PREDICTIONS.map((playerData) => {
+                const player = PLAYERS.find(
+                  (p) => p.id === playerData.playerId,
+                );
+                const isMe = users.some(
+                  (u) =>
+                    user &&
+                    u.uid === user.uid &&
+                    (u as FirestoreUser & { playerId?: string }).playerId ===
+                      playerData.playerId,
+                );
+                return (
+                  <tr
+                    key={playerData.playerId}
+                    className={cn(
+                      "transition-colors hover:bg-white/3",
+                      isMe && "bg-wc-gold/5",
+                    )}
+                  >
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-base">
+                          {player?.avatar ?? "👤"}
+                        </span>
+                        <span
+                          className={cn(
+                            "font-medium",
+                            isMe ? "text-wc-gold" : "text-gray-300",
                           )}
-                        </th>
+                        >
+                          {playerFirstName(playerData.playerId)}
+                        </span>
+                      </div>
+                    </td>
+                    {R16_MATCHES.map((m) => {
+                      const pick = playerData.predictions.find(
+                        (p) => p.matchId === m.id,
+                      );
+                      const winner = getWinner(m.id, R16_MATCHES, allByApiId);
+                      const revealed = isPickRevealed(m.date);
+                      const isCorrect =
+                        revealed && winner && pick?.winner === winner;
+                      const isWrong =
+                        revealed &&
+                        winner &&
+                        pick?.winner &&
+                        pick.winner !== winner;
+                      return (
+                        <td key={m.id} className="text-center py-2 px-1">
+                          {revealed && pick ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
+                                isCorrect
+                                  ? "bg-green-900/30 text-green-400"
+                                  : isWrong
+                                    ? "bg-red-900/30 text-red-400"
+                                    : "bg-white/5 text-gray-300",
+                              )}
+                            >
+                              {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
+                              {pick.winner.split(" ").slice(-1)[0]}
+                            </span>
+                          ) : revealed ? (
+                            <span className="text-gray-700">—</span>
+                          ) : (
+                            <span className="text-[10px] text-gray-700">
+                              🔒
+                            </span>
+                          )}
+                        </td>
                       );
                     })}
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {SEEDED_R16_PREDICTIONS.map((playerData) => {
-                    const player = PLAYERS.find(
-                      (p) => p.id === playerData.playerId,
-                    );
-                    return (
-                      <tr
-                        key={playerData.playerId}
-                        className={cn(
-                          "hover:bg-white/3 transition-colors",
-                          users.find(
-                            (u) =>
-                              user &&
-                              u.uid === user.uid &&
-                              (u as FirestoreUser & { playerId?: string })
-                                .playerId === playerData.playerId,
-                          )
-                            ? "bg-wc-gold/5"
-                            : "",
-                        )}
-                      >
-                        <td className="py-2.5 pr-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-base">
-                              {player?.avatar ?? "👤"}
-                            </span>
-                            <span className="font-medium text-gray-300">
-                              {playerFirstName(playerData.playerId)}
-                            </span>
-                          </div>
-                        </td>
-                        {revealedMatches.map((m) => {
-                          const pick = playerData.predictions.find(
-                            (p) => p.matchId === m.id,
-                          );
-                          const winner = matchWinner(m.id);
-                          const isCorrect = winner && pick?.winner === winner;
-                          const isWrong =
-                            winner && pick?.winner && pick.winner !== winner;
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-                          return (
-                            <td key={m.id} className="text-center py-2.5 px-1">
-                              {pick ? (
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
-                                    isCorrect
-                                      ? "bg-green-900/30 text-green-400"
-                                      : isWrong
-                                        ? "bg-red-900/30 text-red-400 line-through opacity-70"
-                                        : "bg-white/5 text-gray-300",
-                                  )}
-                                >
-                                  {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
-                                  {pick.winner.split(" ").slice(-1)[0]}
-                                </span>
-                              ) : (
-                                <span className="text-gray-700">—</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+      {/* ── QF Previously Picked (blurred until 4h before each match) ──────── */}
+      <div className="glass-card p-5">
+        <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
+          <Eye size={16} className="text-wc-gold" /> QF Previously Picked
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Picks reveal 4 h before each quarter-final · ✅ correct · ❌ wrong
+        </p>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-xs min-w-[440px]">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
+                  Player
+                </th>
+                {QF_MATCHES.map((m) => {
+                  const revealed = isPickRevealed(m.date);
+                  const winner = revealed
+                    ? getWinner(m.id, QF_MATCHES, allByApiId)
+                    : null;
+                  return (
+                    <th
+                      key={m.id}
+                      className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[72px]"
+                    >
+                      <div className="font-bold text-gray-400">{m.label}</div>
+                      <div className="text-[10px] text-gray-600 font-normal">
+                        {revealed
+                          ? `${m.homeTeam.flag}v${m.awayTeam.flag}`
+                          : "🔒"}
+                      </div>
+                      {revealed && winner && (
+                        <div className="text-[10px] text-green-400 font-bold mt-0.5">
+                          {winner}
+                        </div>
+                      )}
+                      {!revealed && (
+                        <div className="text-[9px] text-amber-600 mt-0.5">
+                          {new Date(
+                            new Date(m.date).getTime() - 4 * 3600 * 1000,
+                          ).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Jakarta",
+                          })}{" "}
+                          WIB
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {SEEDED_R16_PREDICTIONS.map((playerData) => {
+                const player = PLAYERS.find(
+                  (p) => p.id === playerData.playerId,
+                );
+                const playerId = playerData.playerId;
+                const isMe = users.some(
+                  (u) =>
+                    user &&
+                    u.uid === user.uid &&
+                    (u as FirestoreUser & { playerId?: string }).playerId ===
+                      playerId,
+                );
+                return (
+                  <tr
+                    key={playerId}
+                    className={cn(
+                      "transition-colors hover:bg-white/3",
+                      isMe && "bg-wc-gold/5",
+                    )}
+                  >
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-base">
+                          {player?.avatar ?? "👤"}
+                        </span>
+                        <span
+                          className={cn(
+                            "font-medium",
+                            isMe ? "text-wc-gold" : "text-gray-300",
+                          )}
+                        >
+                          {playerFirstName(playerId)}
+                        </span>
+                      </div>
+                    </td>
+                    {QF_MATCHES.map((m) => {
+                      const revealed = isPickRevealed(m.date);
+                      const pickedWinner = revealed
+                        ? qfPicks[m.id]?.[playerId]
+                        : null;
+                      const matchWin = revealed
+                        ? getWinner(m.id, QF_MATCHES, allByApiId)
+                        : null;
+                      const isCorrect = matchWin && pickedWinner === matchWin;
+                      const isWrong =
+                        matchWin && pickedWinner && pickedWinner !== matchWin;
+                      return (
+                        <td key={m.id} className="text-center py-2 px-1">
+                          {revealed ? (
+                            pickedWinner ? (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
+                                  isCorrect
+                                    ? "bg-green-900/30 text-green-400"
+                                    : isWrong
+                                      ? "bg-red-900/30 text-red-400"
+                                      : "bg-white/5 text-gray-300",
+                                )}
+                              >
+                                {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
+                                {pickedWinner.split(" ").slice(-1)[0]}
+                              </span>
+                            ) : (
+                              <span className="text-gray-600 text-[10px]">
+                                no pick
+                              </span>
+                            )
+                          ) : (
+                            /* Blurred placeholder — pick not yet revealed */
+                            <span
+                              className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold select-none"
+                              style={{
+                                filter: "blur(5px)",
+                                background: "rgba(255,255,255,0.07)",
+                                color: "#aaa",
+                              }}
+                              title="Unlocks 4 hours before kick-off"
+                            >
+                              ???
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Global unlock notice */}
+        {QF_MATCHES.some((m) => !isPickRevealed(m.date)) && (
+          <div className="mt-4 flex items-start gap-2 bg-amber-900/15 border border-amber-500/20 rounded-xl px-4 py-3">
+            <Lock size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-400">
+              Blurred cells unlock <strong>4 hours before each match</strong>.
+              Data for QF1 reveals{" "}
+              {new Date(
+                new Date(QF_MATCHES[0].date).getTime() - 4 * 3600 * 1000,
+              ).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "Asia/Jakarta",
+              })}{" "}
+              WIB.
+            </p>
           </div>
-        );
-      })()}
+        )}
+      </div>
 
       {/* Scoring rules */}
       <div className="glass-card p-5">
