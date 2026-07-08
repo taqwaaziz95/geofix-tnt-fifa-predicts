@@ -123,14 +123,20 @@ export default function LeaderboardTable({
                       </p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-gray-500">R32</p>
-                      <p className="text-sm font-bold text-gray-300">
+                      <p className="text-xs text-gray-500">KO</p>
+                      <p className="text-sm font-bold text-blue-300">
+                        {entry.knockoutPoints}
+                      </p>
+                    </div>
+                    <div className="text-center border-l border-white/10 pl-3">
+                      <p className="text-xs text-gray-600">R32</p>
+                      <p className="text-sm font-bold text-gray-400">
                         {entry.r32Points}
                       </p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-gray-500">R16</p>
-                      <p className="text-sm font-bold text-gray-300">
+                      <p className="text-xs text-gray-600">R16</p>
+                      <p className="text-sm font-bold text-gray-400">
                         {entry.r16Points}
                       </p>
                     </div>

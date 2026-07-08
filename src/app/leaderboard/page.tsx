@@ -5,9 +5,12 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
 import LeaderboardTable from "@/components/LeaderboardTable";
-import { Trophy, Info } from "lucide-react";
+import { Trophy, Info, Eye } from "lucide-react";
 import { LeaderboardEntry } from "@/types";
 import { cn } from "@/lib/utils";
+import { SEEDED_R16_PREDICTIONS } from "@/data/seeded-predictions";
+import { R16_MATCHES } from "@/data/matches";
+import { PLAYERS } from "@/data/players";
 
 type StageFilter = "all" | "group" | "r32" | "r16" | "qf" | "sf" | "final";
 
@@ -63,6 +66,34 @@ function toLeaderboardEntries(users: FirestoreUser[]): LeaderboardEntry[] {
       rank: i + 1,
     }));
 }
+
+// ── Previously Picked helpers ─────────────────────────────────────────────────
+
+/** Derive winner name from static match data (for FINISHED matches). */
+function matchWinner(matchId: string): string | null {
+  const m = R16_MATCHES.find((x) => x.id === matchId);
+  if (!m || m.status !== "FINISHED") return null;
+  if ((m.homeScore ?? 0) > (m.awayScore ?? 0)) return m.homeTeam.name;
+  if ((m.awayScore ?? 0) > (m.homeScore ?? 0)) return m.awayTeam.name;
+  // Penalties
+  if ((m.homePenalties ?? 0) > (m.awayPenalties ?? 0)) return m.homeTeam.name;
+  if ((m.awayPenalties ?? 0) > (m.homePenalties ?? 0)) return m.awayTeam.name;
+  return null;
+}
+
+/** Show predictions for a match only once it's within 4 hours of kickoff. */
+function isPickRevealed(matchDate: string): boolean {
+  return Date.now() >= new Date(matchDate).getTime() - 4 * 60 * 60 * 1000;
+}
+
+/** Build player display name from PLAYERS data (id → firstName). */
+function playerFirstName(playerId: string): string {
+  const p = PLAYERS.find((x) => x.id === playerId);
+  if (!p) return playerId;
+  return p.name.split(" ")[0];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SCORE_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -342,6 +373,124 @@ export default function LeaderboardPage() {
           </table>
         </div>
       </div>
+
+      {/* ── Previously Picked ───────────────────────────────────────────────── */}
+      {(() => {
+        // Only show matches that are within 4 hours of kickoff (picks revealed)
+        const revealedMatches = R16_MATCHES.filter((m) =>
+          isPickRevealed(m.date),
+        );
+        if (revealedMatches.length === 0) return null;
+
+        return (
+          <div className="glass-card p-5">
+            <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
+              <Eye size={16} className="text-wc-purple" /> R16 Previously Picked
+            </h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Picks revealed 4 h before kickoff · ✅ correct · ❌ wrong · —
+              result pending
+            </p>
+
+            <div className="overflow-x-auto -mx-1 px-1">
+              <table className="w-full text-xs min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
+                      Player
+                    </th>
+                    {revealedMatches.map((m) => {
+                      const winner = matchWinner(m.id);
+                      return (
+                        <th
+                          key={m.id}
+                          className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[64px]"
+                        >
+                          <div>{m.label}</div>
+                          <div className="text-[10px] text-gray-600 font-normal">
+                            {m.homeTeam.flag}v{m.awayTeam.flag}
+                          </div>
+                          {winner && (
+                            <div className="text-[10px] text-wc-green font-bold mt-0.5">
+                              {winner}
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {SEEDED_R16_PREDICTIONS.map((playerData) => {
+                    const player = PLAYERS.find(
+                      (p) => p.id === playerData.playerId,
+                    );
+                    return (
+                      <tr
+                        key={playerData.playerId}
+                        className={cn(
+                          "hover:bg-white/3 transition-colors",
+                          users.find(
+                            (u) =>
+                              user &&
+                              u.uid === user.uid &&
+                              (u as FirestoreUser & { playerId?: string })
+                                .playerId === playerData.playerId,
+                          )
+                            ? "bg-wc-gold/5"
+                            : "",
+                        )}
+                      >
+                        <td className="py-2.5 pr-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-base">
+                              {player?.avatar ?? "👤"}
+                            </span>
+                            <span className="font-medium text-gray-300">
+                              {playerFirstName(playerData.playerId)}
+                            </span>
+                          </div>
+                        </td>
+                        {revealedMatches.map((m) => {
+                          const pick = playerData.predictions.find(
+                            (p) => p.matchId === m.id,
+                          );
+                          const winner = matchWinner(m.id);
+                          const isCorrect = winner && pick?.winner === winner;
+                          const isWrong =
+                            winner && pick?.winner && pick.winner !== winner;
+
+                          return (
+                            <td key={m.id} className="text-center py-2.5 px-1">
+                              {pick ? (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
+                                    isCorrect
+                                      ? "bg-green-900/30 text-green-400"
+                                      : isWrong
+                                        ? "bg-red-900/30 text-red-400 line-through opacity-70"
+                                        : "bg-white/5 text-gray-300",
+                                  )}
+                                >
+                                  {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
+                                  {pick.winner.split(" ").slice(-1)[0]}
+                                </span>
+                              ) : (
+                                <span className="text-gray-700">—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Scoring rules */}
       <div className="glass-card p-5">

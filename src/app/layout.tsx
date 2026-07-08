@@ -3,6 +3,7 @@ import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/context/AuthContext";
+import Ahade888Modal from "@/components/Ahade888Modal";
 
 export const metadata: Metadata = {
   title: "WC2026 Predict — FIFA World Cup 2026 Prediction Game",
@@ -37,6 +38,7 @@ export default function RootLayout({
         <AuthProvider>
           <Navbar />
           <main className="pt-16 min-h-screen">{children}</main>
+          <Ahade888Modal />
           <Toaster
             position="top-right"
             toastOptions={{

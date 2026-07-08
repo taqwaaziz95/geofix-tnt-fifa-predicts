@@ -16,6 +16,26 @@ import { cn, isMatchLockedByTime } from "@/lib/utils";
 import Link from "next/link";
 import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
 
+// QF prediction deadline: July 9 2026 18:00 WIB (= 11:00 UTC)
+const QF_LOCK_DATE = new Date("2026-07-09T11:00:00Z");
+
+function isQfLocked(): boolean {
+  return Date.now() >= QF_LOCK_DATE.getTime();
+}
+
+function qfDeadlineLabel(): string {
+  const now = Date.now();
+  const diff = QF_LOCK_DATE.getTime() - now;
+  if (diff <= 0) return "Predictions are LOCKED";
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `Locks in ${d}d ${h % 24}h`;
+  }
+  return h > 0 ? `Locks in ${h}h ${m}m` : `Locks in ${m}m`;
+}
+
 // ── Merge API live data into static Match objects ─────────────────────────────
 // API IDs "89"…"96" map to static IDs "r16-m89"…"r16-m96"
 // API IDs "97"…"100" map to static IDs "qf-m97"…"qf-m100"
@@ -343,13 +363,39 @@ export default function PredictPage() {
             </div>
           </div>
 
+          {/* QF deadline banner */}
+          {isQfLocked() ? (
+            <div className="flex items-center gap-2 bg-red-900/20 border border-red-500/40 rounded-xl px-4 py-3">
+              <Lock size={14} className="text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-300 font-semibold">
+                QF predictions are <strong>LOCKED</strong> — deadline was Jul 9
+                at 18:00 WIB.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Deadline: <strong>Jul 9 · 18:00 WIB</strong>. Once locked, no
+                  changes allowed.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-amber-400 tabular-nums flex-shrink-0">
+                {qfDeadlineLabel()}
+              </span>
+            </div>
+          )}
+
           <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
             ⚡ Quarter-Final Predictions
           </h2>
 
           {qfMatchesMerged.map((match, i) => {
             const hasPrediction = !!predictions[match.id];
-            const locked = hasPrediction || isMatchLockedByTime(match.date);
+            // Lock if: already predicted, past QF global deadline, or within 1h of kickoff
+            const locked =
+              hasPrediction || isQfLocked() || isMatchLockedByTime(match.date);
             return (
               <MatchCard
                 key={match.id}
