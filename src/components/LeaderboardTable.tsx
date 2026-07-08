@@ -105,7 +105,12 @@ export default function LeaderboardTable({
                 </p>
                 {!compact && (
                   <p className="text-xs text-gray-500 truncate">
-                    {entry.correctPredictions} correct picks
+                    {Math.floor((entry.r32Points ?? 0) / 2) +
+                      Math.floor((entry.r16Points ?? 0) / 4) +
+                      Math.floor((entry.qfPoints ?? 0) / 8) +
+                      Math.floor((entry.sfPoints ?? 0) / 16) +
+                      Math.floor((entry.finalPoints ?? 0) / 20)}{" "}
+                    correct picks
                   </p>
                 )}
               </div>

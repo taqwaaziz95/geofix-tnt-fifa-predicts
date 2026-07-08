@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
+import { R32_MATCHES, R16_MATCHES, QF_MATCHES } from "@/data/matches";
 import {
   getSeededPredictionsForPlayer,
   isExistingLockedPlayer,
@@ -11,7 +11,7 @@ import {
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
 import { Match, Prediction } from "@/types";
-import { Target, CheckCircle2, LogIn, Lock } from "lucide-react";
+import { Target, LogIn, Lock } from "lucide-react";
 import { cn, isMatchLockedByTime } from "@/lib/utils";
 import Link from "next/link";
 import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
@@ -80,7 +80,6 @@ function mergeQfTeams(
 export default function PredictPage() {
   const { user, profile, predictions, loading } = useAuth();
   const [activeModal, setActiveModal] = useState<Match | null>(null);
-  const [visibleResults, setVisibleResults] = useState(3);
   const {
     recentR16,
     r16AllFinished,
@@ -151,24 +150,6 @@ export default function PredictPage() {
     );
   }
 
-  const upcomingMatches = R16_MATCHES.filter((m) => m.status === "SCHEDULED");
-  // Newest finished matches first
-  const finishedMatches = r16WithApiScores
-    .filter((m) => m.status === "FINISHED")
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  // For existing locked players, use seeded predictions
-  // For new users, use their Firestore predictions
-  const predictedCount = upcomingMatches.filter((m) =>
-    isLocked ? seededPreds[m.id] : predictions[m.id],
-  ).length;
-  // const finishedPredCount = finishedMatches.filter((m) =>
-  //   isLocked ? seededPreds[m.id] : predictions[m.id],
-  // ).length;
-  const totalCount = upcomingMatches.length;
-  const progress =
-    totalCount > 0 ? Math.round((predictedCount / totalCount) * 100) : 0;
-
   // Resolve a prediction: use seeded data for locked users, Firestore for new users
   function toPrediction(matchId: string): Prediction | undefined {
     if (isLocked && seededPreds[matchId]) {
@@ -194,7 +175,7 @@ export default function PredictPage() {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h1 className="font-display text-2xl font-black text-white flex items-center gap-2">
-              <Target size={22} className="text-wc-gold" /> R16 Predictions
+              <Target size={22} className="text-wc-gold" /> My Predictions
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               Playing as{" "}
@@ -203,44 +184,7 @@ export default function PredictPage() {
               </span>
             </p>
           </div>
-          <div className="text-right">
-            <p
-              className={cn(
-                "font-display text-2xl font-bold",
-                predictedCount === totalCount
-                  ? "text-wc-green"
-                  : "text-wc-gold",
-              )}
-            >
-              {predictedCount}/{totalCount}
-            </p>
-            <p className="text-xs text-gray-500">predicted</p>
-          </div>
         </div>
-
-        <div className="bg-white/10 rounded-full h-2">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${progress}%` }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className={cn(
-              "h-2 rounded-full",
-              progress === 100
-                ? "bg-wc-green"
-                : "bg-gradient-to-r from-wc-gold to-wc-gold-light",
-            )}
-          />
-        </div>
-
-        {predictedCount === totalCount && totalCount > 0 && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-wc-green text-sm font-medium mt-2 flex items-center gap-1"
-          >
-            <CheckCircle2 size={14} /> All predictions submitted — good luck!
-          </motion.p>
-        )}
       </motion.div>
 
       {/* Points guide */}
@@ -268,97 +212,17 @@ export default function PredictPage() {
         </div>
       </div>
 
-      {/* Upcoming matches */}
-      {upcomingMatches.length === 0 ? (
-        <div className="glass-card p-8 text-center">
-          <p className="text-4xl mb-3">✅</p>
-          <h3 className="font-display text-lg font-bold text-white mb-1">
-            R16 is complete!
-          </h3>
-          <p className="text-gray-400 text-sm">
-            Check the bracket for Quarter-final matchups.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {isLocked ? (
-            <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
-              <Lock size={14} className="text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-amber-300">
-                Your predictions were locked on Sunday, Jul 5. They cannot be
-                edited.
-              </p>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
-              <Lock size={14} className="text-amber-400 flex-shrink-0" />
-              <p className="text-xs text-amber-300">
-                Once you submit a prediction it is <strong>locked</strong> — you
-                cannot change it. Choose wisely!
-              </p>
-            </div>
-          )}
-          {upcomingMatches.map((match, i) => {
-            const hasPrediction = isLocked
-              ? !!seededPreds[match.id]
-              : !!predictions[match.id];
-            // Lock if predicted, if <1h to kickoff, or if live/finished
-            const locked = hasPrediction || isMatchLockedByTime(match.date);
-            return (
-              <MatchCard
-                key={match.id}
-                match={match}
-                prediction={toPrediction(match.id)}
-                onPredict={locked ? undefined : setActiveModal}
-                index={i}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Finished R16 Results (API-driven, newest first) ── */}
-      {finishedMatches.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
-            ✅ R16 Results
-            <span className="text-sm font-normal text-gray-500">
-              ({finishedMatches.length}/8)
-            </span>
-          </h2>
-          {finishedMatches.slice(0, visibleResults).map((match, i) => (
-            <MatchCard
-              key={match.id}
-              match={match}
-              prediction={toPrediction(match.id)}
-              showPoints
-              earnedPoints={4}
-              index={i}
-            />
-          ))}
-          {visibleResults < finishedMatches.length && (
-            <button
-              onClick={() => setVisibleResults((v) => v + 3)}
-              className="w-full glass-card py-2.5 text-sm text-gray-400 hover:text-white hover:border-white/20 transition-colors flex items-center justify-center gap-2"
-            >
-              ↓ Load {Math.min(3, finishedMatches.length - visibleResults)} more
-              results
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── QF Predictions (auto-unlocks when all R16 done) ── */}
+      {/* ── Quarter-Final Predictions (TOP — current active stage) ── */}
       {r16AllFinished && (
         <div className="space-y-3">
           <div className="flex items-center gap-3 bg-wc-gold/10 border border-wc-gold/30 rounded-xl px-4 py-3">
             <span className="text-xl">🏆</span>
             <div>
               <p className="font-display font-bold text-wc-gold text-sm">
-                Quarter-Finals Unlocked!
+                Quarter-Finals Predictions
               </p>
               <p className="text-xs text-gray-400">
-                All R16 matches are done — make your QF predictions now
+                Predict who advances to the Semi-Finals
               </p>
             </div>
           </div>
@@ -387,10 +251,6 @@ export default function PredictPage() {
             </div>
           )}
 
-          <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
-            ⚡ Quarter-Final Predictions
-          </h2>
-
           {qfMatchesMerged.map((match, i) => {
             const hasPrediction = !!predictions[match.id];
             // Lock if: already predicted, past QF global deadline, or within 1h of kickoff
@@ -416,6 +276,48 @@ export default function PredictPage() {
           })}
         </div>
       )}
+
+      {/* ── R16 Results & Predictions History ── */}
+      {r16WithApiScores.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-display text-lg font-bold text-gray-400 flex items-center gap-2">
+            📋 R16 Results & My Picks
+          </h2>
+          {r16WithApiScores
+            .sort(
+              (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+            )
+            .map((match, i) => (
+              <MatchCard
+                key={match.id}
+                match={match}
+                prediction={toPrediction(match.id)}
+                showPoints={match.status === "FINISHED"}
+                earnedPoints={4}
+                index={i}
+              />
+            ))}
+        </div>
+      )}
+
+      {/* ── R32 Results & My Picks ── */}
+      <div className="space-y-3">
+        <h2 className="font-display text-lg font-bold text-gray-400 flex items-center gap-2">
+          📋 R32 Results & My Picks
+        </h2>
+        {R32_MATCHES.sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        ).map((match, i) => (
+          <MatchCard
+            key={match.id}
+            match={match}
+            prediction={toPrediction(match.id)}
+            showPoints={match.status === "FINISHED"}
+            earnedPoints={2}
+            index={i}
+          />
+        ))}
+      </div>
 
       {activeModal && (
         <PredictionModal

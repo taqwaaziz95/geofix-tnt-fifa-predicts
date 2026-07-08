@@ -4,17 +4,46 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
-import { R16_MATCHES } from "@/data/matches";
+import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
 import { Match } from "@/types";
-import { Trophy, Zap, Target, ChevronRight, LogIn } from "lucide-react";
+import { Trophy, Zap, Target, ChevronRight, LogIn, Lock } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { cn, isMatchLockedByTime } from "@/lib/utils";
 import LiveMatchBanner from "@/components/LiveMatchBanner";
 import { ResultsList } from "@/components/ApiResultCard";
-import { useLiveMatches } from "@/hooks/useLiveMatches";
+import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
+
+// QF prediction deadline: July 9 2026 18:00 WIB (= 11:00 UTC)
+const QF_LOCK_DATE = new Date("2026-07-09T11:00:00Z");
+function isQfLocked(): boolean {
+  return Date.now() >= QF_LOCK_DATE.getTime();
+}
+
+function numericId(staticId: string): string {
+  return staticId.replace(/^[^-]+-m/, "");
+}
+
+function mergeQfTeams(
+  staticMatches: Match[],
+  apiMatches: LiveMatch[],
+): Match[] {
+  return staticMatches.map((sm) => {
+    const api = apiMatches.find((a) => a.id === numericId(sm.id));
+    if (!api) return sm;
+    const homeTeam =
+      api.homeTeam && api.homeTeam !== "undefined"
+        ? { ...sm.homeTeam, name: api.homeTeam, flag: api.homeFlag }
+        : sm.homeTeam;
+    const awayTeam =
+      api.awayTeam && api.awayTeam !== "undefined"
+        ? { ...sm.awayTeam, name: api.awayTeam, flag: api.awayFlag }
+        : sm.awayTeam;
+    return { ...sm, homeTeam, awayTeam };
+  });
+}
 
 function firestoreUsersToLeaderboard(users: FirestoreUser[]) {
   return [...users]
@@ -45,7 +74,12 @@ export default function HomePage() {
   const [lbUsers, setLbUsers] = useState<FirestoreUser[]>([]);
   const [activeModal, setActiveModal] = useState<Match | null>(null);
   const [lbLoaded, setLbLoaded] = useState(false);
-  const { recentR16, r32Results } = useLiveMatches();
+  const {
+    recentR16,
+    r32Results,
+    r16AllFinished,
+    qfMatches: apiQfMatches,
+  } = useLiveMatches();
 
   // Real-time leaderboard from Firestore
   useEffect(() => {
@@ -146,10 +180,10 @@ export default function HomePage() {
   const leaderboard = firestoreUsersToLeaderboard(lbUsers);
   const top5 = leaderboard.slice(0, 5);
   const userEntry = leaderboard.find((e) => e.id === user.uid);
-  const upcomingMatches = R16_MATCHES.filter((m) => m.status === "SCHEDULED");
-  const predictedCount = upcomingMatches.filter(
-    (m) => predictions[m.id],
-  ).length;
+
+  // QF matches with resolved team names
+  const qfMerged = mergeQfTeams(QF_MATCHES, apiQfMatches);
+  const qfUnpredicted = qfMerged.filter((m) => !predictions[m.id]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -194,14 +228,14 @@ export default function HomePage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
-            label: "Predictions Made",
-            value: `${predictedCount}/${upcomingMatches.length}`,
+            label: "QF Predicted",
+            value: `${qfMerged.filter((m) => predictions[m.id]).length}/${qfMerged.length}`,
             icon: Target,
             color: "text-wc-blue",
           },
           {
-            label: "R16 Matches Left",
-            value: upcomingMatches.length,
+            label: "QF Matches",
+            value: qfMerged.length,
             icon: Zap,
             color: "text-wc-gold",
           },
@@ -235,43 +269,76 @@ export default function HomePage() {
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
-        {/* Upcoming R16 matches */}
-        <div className="md:col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
-              <Zap size={16} className="text-wc-gold" /> Upcoming R16
-            </h2>
-            <Link
-              href="/predict"
-              className="text-xs text-wc-gold hover:text-wc-gold-light flex items-center gap-1 transition-colors"
-            >
-              Predict all <ChevronRight size={12} />
-            </Link>
-          </div>
-          {upcomingMatches.length === 0 ? (
-            <div className="glass-card p-6 text-center text-gray-500 text-sm">
-              All R16 matches complete!
+        {/* Main content */}
+        <div className="md:col-span-2 space-y-6">
+          {/* ── QF Quick Predict (Latest Upcoming) ── */}
+          {r16AllFinished && qfUnpredicted.length > 0 && !isQfLocked() && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+                  🏆 Quick Predict — Quarter-Finals
+                </h2>
+                <Link
+                  href="/predict"
+                  className="text-xs text-wc-gold hover:text-wc-gold-light flex items-center gap-1 transition-colors"
+                >
+                  View all <ChevronRight size={12} />
+                </Link>
+              </div>
+              <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-2">
+                <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Deadline: <strong>Jul 9 · 18:00 WIB</strong> — predict now!
+                </p>
+              </div>
+              {qfUnpredicted.map((match, i) => {
+                const locked = isMatchLockedByTime(match.date);
+                return (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    onPredict={locked ? undefined : setActiveModal}
+                    index={i}
+                  />
+                );
+              })}
             </div>
-          ) : (
-            upcomingMatches.map((match, i) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                prediction={
-                  predictions[match.id]
-                    ? {
-                        matchId: match.id,
-                        winner: predictions[match.id].winner,
-                        submittedAt: "",
-                      }
-                    : undefined
-                }
-                onPredict={predictions[match.id] ? undefined : setActiveModal}
-                index={i}
-              />
-            ))
           )}
 
+          {/* QF already predicted — show summary */}
+          {r16AllFinished && qfUnpredicted.length === 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+                  🏆 Quarter-Finals
+                </h2>
+                <Link
+                  href="/predict"
+                  className="text-xs text-wc-gold hover:text-wc-gold-light flex items-center gap-1 transition-colors"
+                >
+                  View picks <ChevronRight size={12} />
+                </Link>
+              </div>
+              {qfMerged.map((match, i) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  prediction={
+                    predictions[match.id]
+                      ? {
+                          matchId: match.id,
+                          winner: predictions[match.id].winner,
+                          submittedAt: "",
+                        }
+                      : undefined
+                  }
+                  index={i}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── R16 Results ── */}
           {recentR16.length > 0 && (
             <ResultsList
               matches={recentR16}
@@ -284,7 +351,7 @@ export default function HomePage() {
           {r32Results.length > 0 && (
             <ResultsList
               matches={r32Results}
-              title="Group Stage Results"
+              title="R32 Results"
               icon="📋"
               initialShow={5}
             />
