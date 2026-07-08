@@ -2,5 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
-  "devCommand": "npm run dev"
+  "devCommand": "npm run dev",
+  "crons": [
+    {
+      "path": "/api/score-matches",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

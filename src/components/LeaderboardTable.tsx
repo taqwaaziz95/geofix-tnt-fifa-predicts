@@ -4,16 +4,52 @@ import { motion } from "framer-motion";
 import { LeaderboardEntry } from "@/types";
 import { getRankEmoji, getRankBg, getRankColor, cn } from "@/lib/utils";
 
+type StageFilter = "all" | "group" | "r32" | "r16" | "qf" | "sf" | "final";
+
+function stagePoints(entry: LeaderboardEntry, stage: StageFilter): number {
+  switch (stage) {
+    case "group":
+      return entry.groupPoints;
+    case "r32":
+      return entry.r32Points;
+    case "r16":
+      return entry.r16Points;
+    case "qf":
+      return entry.qfPoints;
+    case "sf":
+      return entry.sfPoints;
+    case "final":
+      return entry.finalPoints;
+    default:
+      return entry.totalPoints;
+  }
+}
+
+function stageLabel(stage: StageFilter): string {
+  const map: Record<StageFilter, string> = {
+    all: "pts",
+    group: "Group pts",
+    r32: "R32 pts",
+    r16: "R16 pts",
+    qf: "QF pts",
+    sf: "SF pts",
+    final: "Final pts",
+  };
+  return map[stage];
+}
+
 interface LeaderboardTableProps {
   entries: LeaderboardEntry[];
   highlightId?: string;
   compact?: boolean;
+  stage?: StageFilter;
 }
 
 export default function LeaderboardTable({
   entries,
   highlightId,
   compact,
+  stage = "all",
 }: LeaderboardTableProps) {
   return (
     <div className="space-y-2">
@@ -78,22 +114,63 @@ export default function LeaderboardTable({
             {/* Stats */}
             {!compact && (
               <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
-                <div className="text-center">
-                  <p className="text-xs text-gray-500">Group</p>
-                  <p className="text-sm font-bold text-gray-300">
-                    {entry.groupPoints}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-gray-500">KO</p>
-                  <p className="text-sm font-bold text-gray-300">
-                    {entry.knockoutPoints}
-                  </p>
-                </div>
+                {stage === "all" ? (
+                  <>
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">Group</p>
+                      <p className="text-sm font-bold text-gray-300">
+                        {entry.groupPoints}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">R32</p>
+                      <p className="text-sm font-bold text-gray-300">
+                        {entry.r32Points}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">R16</p>
+                      <p className="text-sm font-bold text-gray-300">
+                        {entry.r16Points}
+                      </p>
+                    </div>
+                    {entry.qfPoints > 0 && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">QF</p>
+                        <p className="text-sm font-bold text-gray-300">
+                          {entry.qfPoints}
+                        </p>
+                      </div>
+                    )}
+                    {entry.sfPoints > 0 && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">SF</p>
+                        <p className="text-sm font-bold text-gray-300">
+                          {entry.sfPoints}
+                        </p>
+                      </div>
+                    )}
+                    {entry.finalPoints > 0 && (
+                      <div className="text-center">
+                        <p className="text-xs text-gray-500">Final</p>
+                        <p className="text-sm font-bold text-gray-300">
+                          {entry.finalPoints}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500">{stageLabel(stage)}</p>
+                    <p className="text-sm font-bold text-wc-gold">
+                      {stagePoints(entry, stage)}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Total points */}
+            {/* Stage / Total points */}
             <div className="flex-shrink-0 text-right">
               <p
                 className={cn(
@@ -107,9 +184,11 @@ export default function LeaderboardTable({
                         : "text-white text-base",
                 )}
               >
-                {entry.totalPoints}
+                {stagePoints(entry, stage)}
               </p>
-              <p className="text-xs text-gray-600">pts</p>
+              <p className="text-xs text-gray-600">
+                {stage === "all" ? "total" : stageLabel(stage)}
+              </p>
             </div>
           </motion.div>
         );

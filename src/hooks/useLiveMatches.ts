@@ -41,8 +41,12 @@ export function useLiveMatches() {
     },
   );
 
-  // Auto-trigger scoring when new finished knockout matches appear
+  // Auto-trigger scoring when finished knockout matches are detected.
+  // Uses localStorage so it persists across tabs:
+  //   - Always fires when finishedCount increases.
+  //   - Also fires if >5 min have elapsed since last score (catch-up for new matches).
   const scoringRef = useRef(false);
+  const SCORE_INTERVAL_MS = 5 * 60 * 1000;
   useEffect(() => {
     if (!data || scoringRef.current) return;
 
@@ -52,20 +56,33 @@ export function useLiveMatches() {
     ).length;
     if (finishedCount === 0) return;
 
-    const key = "scored_ko_count";
-    const cached = parseInt(sessionStorage.getItem(key) ?? "0");
-    if (finishedCount <= cached) return;
+    const triggerScore = () => {
+      scoringRef.current = true;
+      fetch("/api/score-matches", { method: "POST" })
+        .then((r) => r.json())
+        .then((result) => console.log("[score-matches]", result))
+        .catch((e) => console.warn("[score-matches] failed:", e))
+        .finally(() => {
+          scoringRef.current = false;
+        });
+    };
 
-    scoringRef.current = true;
-    sessionStorage.setItem(key, String(finishedCount));
+    try {
+      const cachedCount = parseInt(
+        localStorage.getItem("scored_ko_count") ?? "0",
+        10,
+      );
+      const lastTs = parseInt(localStorage.getItem("last_score_ts") ?? "0", 10);
+      const elapsed = Date.now() - lastTs;
+      if (finishedCount <= cachedCount && elapsed < SCORE_INTERVAL_MS) return;
 
-    fetch("/api/score-matches", { method: "POST" })
-      .then((r) => r.json())
-      .then((result) => console.log("[score-matches]", result))
-      .catch((e) => console.warn("[score-matches] failed:", e))
-      .finally(() => {
-        scoringRef.current = false;
-      });
+      localStorage.setItem("scored_ko_count", String(finishedCount));
+      localStorage.setItem("last_score_ts", String(Date.now()));
+      triggerScore();
+    } catch {
+      // localStorage unavailable — always score
+      triggerScore();
+    }
   }, [data]);
 
   return {

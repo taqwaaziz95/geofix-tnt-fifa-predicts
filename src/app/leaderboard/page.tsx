@@ -64,11 +64,30 @@ function toLeaderboardEntries(users: FirestoreUser[]): LeaderboardEntry[] {
     }));
 }
 
+const SCORE_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
+
 export default function LeaderboardPage() {
   const { user } = useAuth();
   const [users, setUsers] = useState<FirestoreUser[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [stage, setStage] = useState<StageFilter>("all");
+
+  // Auto-trigger scoring when the leaderboard page loads.
+  // Throttled to once per 5 min via localStorage so it doesn't spam.
+  useEffect(() => {
+    try {
+      const last = parseInt(localStorage.getItem("last_score_ts") ?? "0", 10);
+      if (Date.now() - last > SCORE_THROTTLE_MS) {
+        localStorage.setItem("last_score_ts", String(Date.now()));
+        fetch("/api/score-matches", { method: "POST" })
+          .then((r) => r.json())
+          .then((res) => console.log("[leaderboard] scored:", res))
+          .catch((e) => console.warn("[leaderboard] score error:", e));
+      }
+    } catch {
+      // localStorage blocked (private browsing, etc.) — ignore
+    }
+  }, []);
 
   useEffect(() => {
     const unsub = subscribeToLeaderboard((u) => {
@@ -223,7 +242,11 @@ export default function LeaderboardPage() {
             </p>
           </div>
         ) : (
-          <LeaderboardTable entries={entries} highlightId={userEntry?.id} />
+          <LeaderboardTable
+            entries={entries}
+            highlightId={userEntry?.id}
+            stage={stage}
+          />
         )}
       </div>
 
