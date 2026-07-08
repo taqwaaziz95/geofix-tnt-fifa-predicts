@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import type { LiveMatch } from "@/hooks/useLiveMatches";
 import { cn } from "@/lib/utils";
 
-// ── Single result row ─────────────────────────────────────────────────────────
+// ── Single result row ────────────────────────────────────────────────────
 export function ApiResultCard({
   match,
   index = 0,
