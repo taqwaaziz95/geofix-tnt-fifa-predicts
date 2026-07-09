@@ -13,7 +13,7 @@ import { Trophy, Info, Eye, ChevronUp, ChevronDown, Lock } from "lucide-react";
 import { LeaderboardEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import { SEEDED_R16_PREDICTIONS } from "@/data/seeded-predictions";
-import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
+import { R16_MATCHES, QF_MATCHES, SF_MATCHES } from "@/data/matches";
 import { PLAYERS } from "@/data/players";
 import { useLiveMatches } from "@/hooks/useLiveMatches";
 
@@ -196,17 +196,16 @@ export default function LeaderboardPage() {
     return unsub;
   }, []);
 
-  // Fetch QF predictions for all users when any QF match is within 4h of kickoff
+  // Fetch QF predictions for all users (predictions are now open)
   const fetchQfPicks = useCallback(async () => {
-    const revealedQf = QF_MATCHES.filter((m) => isPickRevealed(m.date));
-    if (revealedQf.length === 0 || users.length === 0) return;
+    if (QF_MATCHES.length === 0 || users.length === 0) return;
     const userList = users.map((u) => ({
       uid: u.uid,
       playerId: (u as FirestoreUser & { playerId?: string }).playerId ?? u.uid,
     }));
     const picks = await fetchPicksForMatches(
       userList,
-      revealedQf.map((m) => m.id),
+      QF_MATCHES.map((m) => m.id),
     );
     setQfPicks(picks);
   }, [users]);
@@ -613,7 +612,7 @@ export default function LeaderboardPage() {
           <Eye size={16} className="text-wc-gold" /> QF Previously Picked
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          Picks reveal 4 h before each quarter-final · ✅ correct · ❌ wrong
+          All QF picks revealed · ✅ correct · ❌ wrong
         </p>
         <div className="overflow-x-auto -mx-1 px-1">
           <table className="w-full text-xs min-w-[440px]">
@@ -623,10 +622,7 @@ export default function LeaderboardPage() {
                   Player
                 </th>
                 {QF_MATCHES.map((m) => {
-                  const revealed = isPickRevealed(m.date);
-                  const winner = revealed
-                    ? getWinner(m.id, QF_MATCHES, allByApiId)
-                    : null;
+                  const winner = getWinner(m.id, QF_MATCHES, allByApiId);
                   return (
                     <th
                       key={m.id}
@@ -634,27 +630,11 @@ export default function LeaderboardPage() {
                     >
                       <div className="font-bold text-gray-400">{m.label}</div>
                       <div className="text-[10px] text-gray-600 font-normal">
-                        {revealed
-                          ? `${m.homeTeam.flag}v${m.awayTeam.flag}`
-                          : "🔒"}
+                        {`${m.homeTeam.flag}v${m.awayTeam.flag}`}
                       </div>
-                      {revealed && winner && (
+                      {winner && (
                         <div className="text-[10px] text-green-400 font-bold mt-0.5">
                           {winner}
-                        </div>
-                      )}
-                      {!revealed && (
-                        <div className="text-[9px] text-amber-600 mt-0.5">
-                          {new Date(
-                            new Date(m.date).getTime() - 4 * 3600 * 1000,
-                          ).toLocaleString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            timeZone: "Asia/Jakarta",
-                          })}{" "}
-                          WIB
                         </div>
                       )}
                     </th>
@@ -699,50 +679,30 @@ export default function LeaderboardPage() {
                       </div>
                     </td>
                     {QF_MATCHES.map((m) => {
-                      const revealed = isPickRevealed(m.date);
-                      const pickedWinner = revealed
-                        ? qfPicks[m.id]?.[playerId]
-                        : null;
-                      const matchWin = revealed
-                        ? getWinner(m.id, QF_MATCHES, allByApiId)
-                        : null;
+                      const pickedWinner = qfPicks[m.id]?.[playerId] ?? null;
+                      const matchWin = getWinner(m.id, QF_MATCHES, allByApiId);
                       const isCorrect = matchWin && pickedWinner === matchWin;
                       const isWrong =
                         matchWin && pickedWinner && pickedWinner !== matchWin;
                       return (
                         <td key={m.id} className="text-center py-2 px-1">
-                          {revealed ? (
-                            pickedWinner ? (
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
-                                  isCorrect
-                                    ? "bg-green-900/30 text-green-400"
-                                    : isWrong
-                                      ? "bg-red-900/30 text-red-400"
-                                      : "bg-white/5 text-gray-300",
-                                )}
-                              >
-                                {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
-                                {pickedWinner.split(" ").slice(-1)[0]}
-                              </span>
-                            ) : (
-                              <span className="text-gray-600 text-[10px]">
-                                no pick
-                              </span>
-                            )
-                          ) : (
-                            /* Blurred placeholder — pick not yet revealed */
+                          {pickedWinner ? (
                             <span
-                              className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold select-none"
-                              style={{
-                                filter: "blur(5px)",
-                                background: "rgba(255,255,255,0.07)",
-                                color: "#aaa",
-                              }}
-                              title="Unlocks 4 hours before kick-off"
+                              className={cn(
+                                "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
+                                isCorrect
+                                  ? "bg-green-900/30 text-green-400"
+                                  : isWrong
+                                    ? "bg-red-900/30 text-red-400"
+                                    : "bg-white/5 text-gray-300",
+                              )}
                             >
-                              ???
+                              {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
+                              {pickedWinner.split(" ").slice(-1)[0]}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600 text-[10px]">
+                              no pick
                             </span>
                           )}
                         </td>
@@ -754,27 +714,100 @@ export default function LeaderboardPage() {
             </tbody>
           </table>
         </div>
+      </div>
 
-        {/* Global unlock notice */}
-        {QF_MATCHES.some((m) => !isPickRevealed(m.date)) && (
-          <div className="mt-4 flex items-start gap-2 bg-amber-900/15 border border-amber-500/20 rounded-xl px-4 py-3">
-            <Lock size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-400">
-              Blurred cells unlock <strong>4 hours before each match</strong>.
-              Data for QF1 reveals{" "}
-              {new Date(
-                new Date(QF_MATCHES[0].date).getTime() - 4 * 3600 * 1000,
-              ).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "Asia/Jakarta",
-              })}{" "}
-              WIB.
-            </p>
-          </div>
-        )}
+      {/* ── SF Previously Picked (blurred until QF ends) ───────────────────── */}
+      <div className="glass-card p-5">
+        <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
+          <Eye size={16} className="text-purple-400" /> SF Previously Picked
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Semi-final picks are locked until quarter-finals are complete
+        </p>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-xs min-w-[320px]">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
+                  Player
+                </th>
+                {SF_MATCHES.map((m) => (
+                  <th
+                    key={m.id}
+                    className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[72px]"
+                  >
+                    <div className="font-bold text-gray-400">{m.label}</div>
+                    <div className="text-[10px] text-gray-600 font-normal">
+                      🔒
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {SEEDED_R16_PREDICTIONS.map((playerData) => {
+                const player = PLAYERS.find(
+                  (p) => p.id === playerData.playerId,
+                );
+                const playerId = playerData.playerId;
+                const isMe = users.some(
+                  (u) =>
+                    user &&
+                    u.uid === user.uid &&
+                    (u as FirestoreUser & { playerId?: string }).playerId ===
+                      playerId,
+                );
+                return (
+                  <tr
+                    key={playerId}
+                    className={cn(
+                      "transition-colors hover:bg-white/3",
+                      isMe && "bg-wc-gold/5",
+                    )}
+                  >
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-base">
+                          {player?.avatar ?? "👤"}
+                        </span>
+                        <span
+                          className={cn(
+                            "font-medium",
+                            isMe ? "text-wc-gold" : "text-gray-300",
+                          )}
+                        >
+                          {playerFirstName(playerId)}
+                        </span>
+                      </div>
+                    </td>
+                    {SF_MATCHES.map((m) => (
+                      <td key={m.id} className="text-center py-2 px-1">
+                        <span
+                          className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold select-none"
+                          style={{
+                            filter: "blur(5px)",
+                            background: "rgba(255,255,255,0.07)",
+                            color: "#aaa",
+                          }}
+                        >
+                          ???
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex items-start gap-2 bg-purple-900/15 border border-purple-500/20 rounded-xl px-4 py-3">
+          <Lock size={13} className="text-purple-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-purple-300">
+            Semi-final predictions will be revealed{" "}
+            <strong>after all Quarter-Final matches have ended</strong>.
+          </p>
+        </div>
       </div>
 
       {/* Scoring rules */}
