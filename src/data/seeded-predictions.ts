@@ -243,6 +243,10 @@ export const SEEDED_R32_PREDICTIONS: PlayerSeededPredictions[] = [
       { matchId: "r32-m76", winner: "Brazil" },
     ],
   },
+  {
+    playerId: "ahmadsyams",
+    predictions: [],
+  },
 ];
 
 // All existing players' locked predictions for R16 matches
@@ -375,6 +379,12 @@ export const SEEDED_R16_PREDICTIONS: PlayerSeededPredictions[] = [
       { matchId: "r16-m94", winner: "Belgium" },
       { matchId: "r16-m95", winner: "Argentina" },
       { matchId: "r16-m96", winner: "Colombia" },
+    ],
+  },
+  {
+    playerId: "ahmadsyams",
+    predictions: [
+      { matchId: "r16-m95", winner: "Argentina" },
     ],
   },
 ];

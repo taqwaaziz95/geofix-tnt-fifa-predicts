@@ -143,6 +143,20 @@ export const PLAYERS: Player[] = [
     sfPoints: 0,
     finalPoints: 0,
   },
+  {
+    id: "ahmadsyams",
+    name: "Ahmad Syams",
+    avatar: "🐦",
+    groupPoints: 0,
+    knockoutPoints: 4,
+    totalPoints: 4,
+    correctPredictions: 1,
+    r32Points: 0,
+    r16Points: 4,
+    qfPoints: 0,
+    sfPoints: 0,
+    finalPoints: 0,
+  },
 ];
 
 export function getLeaderboard(): LeaderboardEntry[] {
