@@ -383,9 +383,7 @@ export const SEEDED_R16_PREDICTIONS: PlayerSeededPredictions[] = [
   },
   {
     playerId: "ahmadsyams",
-    predictions: [
-      { matchId: "r16-m95", winner: "Argentina" },
-    ],
+    predictions: [{ matchId: "r16-m95", winner: "Argentina" }],
   },
 ];
 
