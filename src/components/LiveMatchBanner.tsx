@@ -57,7 +57,7 @@ function LiveCard({ match }: { match: LiveMatch }) {
 
       {/* Stage badge */}
       <p className="text-[10px] font-bold text-gray-500 tracking-widest uppercase mb-3">
-        {match.stage} · {match.localDate.split(" ")[1]}
+        {match.stage} · {match.venueTime} · {match.wibTime}
       </p>
 
       {/* Teams + Score */}
@@ -104,14 +104,16 @@ function LiveCard({ match }: { match: LiveMatch }) {
 
 // ── Upcoming pill ─────────────────────────────────────────────────────────────
 function UpcomingPill({ match }: { match: LiveMatch }) {
-  const time = match.localDate.split(" ")[1] ?? "";
   return (
     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm">
       <span className="text-base">{match.homeFlag}</span>
       <span className="text-white/70 font-medium text-xs">
         {match.homeTeam}
       </span>
-      <span className="text-gray-500 text-xs font-bold px-1">{time}</span>
+      <span className="flex flex-col items-center px-1">
+        <span className="text-white text-xs font-bold">{match.wibTime}</span>
+        <span className="text-gray-500 text-[10px]">{match.venueTime}</span>
+      </span>
       <span className="text-white/70 font-medium text-xs">
         {match.awayTeam}
       </span>
