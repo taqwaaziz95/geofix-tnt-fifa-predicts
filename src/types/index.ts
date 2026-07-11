@@ -25,6 +25,8 @@ export interface Match {
   homePenalties?: number;
   awayPenalties?: number;
   extraTime?: boolean;
+  homeScorers?: string[];
+  awayScorers?: string[];
   date: string; // ISO string
   status: MatchStatus;
   stage: MatchStage;

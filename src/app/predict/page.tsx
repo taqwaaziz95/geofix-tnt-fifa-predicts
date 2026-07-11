@@ -58,7 +58,7 @@ function mergeScores(staticMatches: Match[], apiMatches: LiveMatch[]): Match[] {
   });
 }
 
-function mergeQfTeams(
+function mergeQfMatchData(
   staticMatches: Match[],
   apiMatches: LiveMatch[],
 ): Match[] {
@@ -73,7 +73,18 @@ function mergeQfTeams(
       api.awayTeam && api.awayTeam !== "undefined"
         ? { ...sm.awayTeam, name: api.awayTeam, flag: api.awayFlag }
         : sm.awayTeam;
-    return { ...sm, homeTeam, awayTeam };
+    const base = { ...sm, homeTeam, awayTeam };
+    if (api.status !== "finished") return base;
+    return {
+      ...base,
+      status: "FINISHED" as const,
+      homeScore: api.homeScore,
+      awayScore: api.awayScore,
+      homePenalties: api.homePenaltyScore ?? undefined,
+      awayPenalties: api.awayPenaltyScore ?? undefined,
+      homeScorers: api.homeScorers,
+      awayScorers: api.awayScorers,
+    };
   });
 }
 
@@ -104,9 +115,9 @@ export default function PredictPage() {
     [recentR16],
   );
 
-  // QF matches with resolved team names from API — must be before early returns
+  // QF matches with resolved team names + scores from API — must be before early returns
   const qfMatchesMerged = useMemo(
-    () => mergeQfTeams(QF_MATCHES, apiQfMatches),
+    () => mergeQfMatchData(QF_MATCHES, apiQfMatches),
     [apiQfMatches],
   );
 

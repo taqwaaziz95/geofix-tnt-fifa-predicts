@@ -26,7 +26,7 @@ function numericId(staticId: string): string {
   return staticId.replace(/^[^-]+-m/, "");
 }
 
-function mergeQfTeams(
+function mergeQfMatchData(
   staticMatches: Match[],
   apiMatches: LiveMatch[],
 ): Match[] {
@@ -41,7 +41,18 @@ function mergeQfTeams(
       api.awayTeam && api.awayTeam !== "undefined"
         ? { ...sm.awayTeam, name: api.awayTeam, flag: api.awayFlag }
         : sm.awayTeam;
-    return { ...sm, homeTeam, awayTeam };
+    const base = { ...sm, homeTeam, awayTeam };
+    if (api.status !== "finished") return base;
+    return {
+      ...base,
+      status: "FINISHED" as const,
+      homeScore: api.homeScore,
+      awayScore: api.awayScore,
+      homePenalties: api.homePenaltyScore ?? undefined,
+      awayPenalties: api.awayPenaltyScore ?? undefined,
+      homeScorers: api.homeScorers,
+      awayScorers: api.awayScorers,
+    };
   });
 }
 
@@ -181,8 +192,8 @@ export default function HomePage() {
   const top5 = leaderboard.slice(0, 5);
   const userEntry = leaderboard.find((e) => e.id === user.uid);
 
-  // QF matches with resolved team names
-  const qfMerged = mergeQfTeams(QF_MATCHES, apiQfMatches);
+  // QF matches with resolved team names + scores
+  const qfMerged = mergeQfMatchData(QF_MATCHES, apiQfMatches);
   const qfUnpredicted = qfMerged.filter((m) => !predictions[m.id]);
 
   return (
@@ -336,6 +347,18 @@ export default function HomePage() {
                 />
               ))}
             </div>
+          )}
+
+          {/* ── QF Results (show finished matches like R16/R32 results) ── */}
+          {apiQfMatches.filter((m) => m.status === "finished").length > 0 && (
+            <ResultsList
+              matches={[...apiQfMatches.filter((m) => m.status === "finished")].sort(
+                (a, b) => b.localDate.localeCompare(a.localDate),
+              )}
+              title="QF Results"
+              icon="🏆"
+              initialShow={4}
+            />
           )}
 
           {/* ── R16 Results ── */}

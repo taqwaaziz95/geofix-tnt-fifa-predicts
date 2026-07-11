@@ -166,6 +166,22 @@ export default function MatchCard({
         <p className="text-xs text-gray-600 mt-2 truncate">{match.venue}</p>
       )}
 
+      {/* Scorers (finished matches) */}
+      {isFinished && (match.homeScorers?.length || match.awayScorers?.length) ? (
+        <div className="mt-2 flex justify-between text-[10px] text-gray-500 gap-2">
+          <div className="flex-1 space-y-0.5">
+            {match.homeScorers?.map((s, i) => (
+              <p key={i}>⚽ {s}</p>
+            ))}
+          </div>
+          <div className="flex-1 text-right space-y-0.5">
+            {match.awayScorers?.map((s, i) => (
+              <p key={i}>{s} ⚽</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {/* Prediction / Points row */}
       <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
         <div className="flex items-center gap-2">
