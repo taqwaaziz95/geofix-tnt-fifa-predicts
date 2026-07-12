@@ -90,12 +90,12 @@ export default function MatchCard({
           )}
           {isScheduled &&
             (() => {
-              const { utc, wib, date: d } = formatMatchDateWIB(match.date);
+              const { venueTime, wib, date: d } = formatMatchDateWIB(match.date, match.venue);
               return (
                 <div className="text-right">
                   <p className="text-[11px] text-gray-400 leading-tight">{d}</p>
                   <p className="text-[11px] text-gray-500 leading-tight">
-                    {utc}
+                    {venueTime}
                     <span className="mx-1 text-gray-700">·</span>
                     <span className="text-wc-blue/80">{wib}</span>
                   </p>

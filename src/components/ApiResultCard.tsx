@@ -46,7 +46,7 @@ export function ApiResultCard({
       className="glass-card px-4 py-3"
     >
       <p className="text-[10px] text-gray-500 font-bold tracking-widest uppercase mb-2">
-        {stageLabel} · {match.localDate.split(" ")[0]}
+        {stageLabel} · {match.venueTime} · {match.wibTime}
       </p>
 
       <div className="flex items-center gap-3">
