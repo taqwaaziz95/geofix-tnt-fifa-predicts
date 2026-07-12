@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Trophy,
@@ -15,6 +16,7 @@ import {
   LogIn,
   LayoutDashboard,
 } from "lucide-react";
+import predictLogo from "@/assets/predict_logo.png";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -49,16 +51,14 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 glass-card rounded-none border-x-0 border-t-0 border-b border-white/10">
       <div className="max-w-6xl mx-auto px-4 h-full flex items-center justify-between">
         {/* Logo */}
-        <Link
-          href={user ? "/" : "/leaderboard"}
-          className="flex items-center gap-2 font-display font-bold text-lg"
-        >
-          <span className="text-2xl">⚽</span>
-          <span className="text-wc-gold">GEOFIX TNT</span>
-          <span className="text-white">2026</span>
-          <span className="text-xs bg-wc-gold/20 text-wc-gold px-2 py-0.5 rounded-full font-semibold ml-1 hidden sm:inline">
-            PREDICT
-          </span>
+        <Link href={user ? "/" : "/leaderboard"} className="flex items-center">
+          <Image
+            src={predictLogo}
+            alt="GeoFixx x TNT Tekminera Predictions"
+            className="max-h-12 w-auto object-contain"
+            style={{ mixBlendMode: "screen" }}
+            priority
+          />
         </Link>
 
         {/* Desktop nav */}
