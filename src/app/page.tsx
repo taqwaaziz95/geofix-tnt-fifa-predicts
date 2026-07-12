@@ -18,9 +18,9 @@ import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
 
 // QF prediction deadline: July 9 2026 18:00 WIB (= 11:00 UTC)
 const QF_LOCK_DATE = new Date("2026-07-09T11:00:00Z");
-function isQfLocked(): boolean {
-  return Date.now() >= QF_LOCK_DATE.getTime();
-}
+// function isQfLocked(): boolean {
+//   return Date.now() >= QF_LOCK_DATE.getTime();
+// }
 
 // SF prediction deadline: July 14 2026 19:00 WIB (= 12:00 UTC)
 const SF_LOCK_DATE = new Date("2026-07-14T12:00:00Z");
@@ -96,7 +96,6 @@ export default function HomePage() {
   const {
     recentR16,
     r32Results,
-    r16AllFinished,
     qfMatches: apiQfMatches,
     sfMatches: apiSfMatches,
   } = useLiveMatches();
@@ -200,9 +199,6 @@ export default function HomePage() {
   const leaderboard = firestoreUsersToLeaderboard(lbUsers);
   const top5 = leaderboard.slice(0, 5);
   const userEntry = leaderboard.find((e) => e.id === user.uid);
-
-  // QF matches with resolved team names + scores
-  const qfMerged = mergeQfMatchData(QF_MATCHES, apiQfMatches);
 
   // SF matches with resolved team names + scores from API
   const sfMerged = mergeKnockoutMatchData(SF_MATCHES, apiSfMatches);
