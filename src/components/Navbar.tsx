@@ -51,12 +51,18 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 glass-card rounded-none border-x-0 border-t-0 border-b border-white/10">
       <div className="max-w-6xl mx-auto px-4 h-full flex items-center justify-between">
         {/* Logo */}
-        <Link href={user ? "/" : "/leaderboard"} className="flex items-center">
+        <Link
+          href={user ? "/" : "/leaderboard"}
+          className="flex items-center shrink-0"
+        >
           <Image
             src={predictLogo}
             alt="GeoFixx x TNT Tekminera Predictions"
-            className="max-h-12 w-auto object-contain"
-            style={{ mixBlendMode: "screen" }}
+            className="h-12 w-auto object-contain"
+            style={{
+              mixBlendMode: "screen",
+              filter: "drop-shadow(0 0 2px rgba(255, 255, 255, 0.5))",
+            }}
             priority
           />
         </Link>
