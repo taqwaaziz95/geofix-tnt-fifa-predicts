@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
-import { R16_MATCHES, QF_MATCHES, SF_MATCHES } from "@/data/matches";
+import { R16_MATCHES, SF_MATCHES } from "@/data/matches";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
@@ -15,12 +15,6 @@ import { cn, isMatchLockedByTime } from "@/lib/utils";
 import LiveMatchBanner from "@/components/LiveMatchBanner";
 import { ResultsList } from "@/components/ApiResultCard";
 import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
-
-// QF prediction deadline: July 9 2026 18:00 WIB (= 11:00 UTC)
-const QF_LOCK_DATE = new Date("2026-07-09T11:00:00Z");
-// function isQfLocked(): boolean {
-//   return Date.now() >= QF_LOCK_DATE.getTime();
-// }
 
 // SF prediction deadline: July 14 2026 19:00 WIB (= 12:00 UTC)
 const SF_LOCK_DATE = new Date("2026-07-14T12:00:00Z");
@@ -61,8 +55,6 @@ function mergeKnockoutMatchData(
     };
   });
 }
-
-const mergeQfMatchData = mergeKnockoutMatchData;
 
 function firestoreUsersToLeaderboard(users: FirestoreUser[]) {
   return [...users]
