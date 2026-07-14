@@ -3,7 +3,12 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
-import { R32_MATCHES, R16_MATCHES, QF_MATCHES } from "@/data/matches";
+import {
+  R32_MATCHES,
+  R16_MATCHES,
+  QF_MATCHES,
+  SF_MATCHES,
+} from "@/data/matches";
 import {
   getSeededPredictionsForPlayer,
   isExistingLockedPlayer,
@@ -36,9 +41,30 @@ function qfDeadlineLabel(): string {
   return h > 0 ? `Locks in ${h}h ${m}m` : `Locks in ${m}m`;
 }
 
+// SF prediction deadline: July 14 2026 19:00 WIB (= 12:00 UTC), 1h before SF1
+const SF_LOCK_DATE = new Date("2026-07-14T12:00:00Z");
+
+function isSfLocked(): boolean {
+  return Date.now() >= SF_LOCK_DATE.getTime();
+}
+
+function sfDeadlineLabel(): string {
+  const now = Date.now();
+  const diff = SF_LOCK_DATE.getTime() - now;
+  if (diff <= 0) return "Predictions are LOCKED";
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `Locks in ${d}d ${h % 24}h`;
+  }
+  return h > 0 ? `Locks in ${h}h ${m}m` : `Locks in ${m}m`;
+}
+
 // ── Merge API live data into static Match objects ─────────────────────────────
 // API IDs "89"…"96" map to static IDs "r16-m89"…"r16-m96"
 // API IDs "97"…"100" map to static IDs "qf-m97"…"qf-m100"
+// API IDs "101"…"102" map to static IDs "sf-m101"…"sf-m102"
 function numericId(staticId: string): string {
   return staticId.replace(/^[^-]+-m/, "");
 }
@@ -58,7 +84,7 @@ function mergeScores(staticMatches: Match[], apiMatches: LiveMatch[]): Match[] {
   });
 }
 
-function mergeQfMatchData(
+function mergeKnockoutMatchData(
   staticMatches: Match[],
   apiMatches: LiveMatch[],
 ): Match[] {
@@ -88,6 +114,9 @@ function mergeQfMatchData(
   });
 }
 
+// Keep old alias for backwards compat
+const mergeQfMatchData = mergeKnockoutMatchData;
+
 export default function PredictPage() {
   const { user, profile, predictions, loading } = useAuth();
   const [activeModal, setActiveModal] = useState<Match | null>(null);
@@ -95,6 +124,7 @@ export default function PredictPage() {
     recentR16,
     r16AllFinished,
     qfMatches: apiQfMatches,
+    sfMatches: apiSfMatches,
   } = useLiveMatches();
 
   // Determine if this user is an existing player with locked predictions
@@ -120,6 +150,34 @@ export default function PredictPage() {
     () => mergeQfMatchData(QF_MATCHES, apiQfMatches),
     [apiQfMatches],
   );
+
+  // SF matches with resolved team names + scores from API
+  const sfMatchesMerged = useMemo(
+    () => mergeKnockoutMatchData(SF_MATCHES, apiSfMatches),
+    [apiSfMatches],
+  );
+
+  // Show SF section when all 4 QF matches are finished OR when API already has SF team names
+  const qfAllFinished = useMemo(
+    () =>
+      apiQfMatches.length >= 4 &&
+      apiQfMatches.every((m) => m.status === "finished"),
+    [apiQfMatches],
+  );
+
+  const sfTeamsKnown = useMemo(
+    () =>
+      apiSfMatches.length >= 1 &&
+      apiSfMatches.some(
+        (m) =>
+          m.homeTeam &&
+          m.homeTeam !== "undefined" &&
+          !m.homeTeam.startsWith("Winner"),
+      ),
+    [apiSfMatches],
+  );
+
+  const showSfSection = qfAllFinished || sfTeamsKnown;
 
   if (loading) {
     return (
@@ -223,7 +281,71 @@ export default function PredictPage() {
         </div>
       </div>
 
-      {/* ── Quarter-Final Predictions (TOP — current active stage) ── */}
+      {/* ── Semi-Final Predictions (TOP — current active stage) ── */}
+      {showSfSection && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 bg-wc-gold/10 border border-wc-gold/30 rounded-xl px-4 py-3">
+            <span className="text-xl">🏟️</span>
+            <div>
+              <p className="font-display font-bold text-wc-gold text-sm">
+                Semi-Finals Predictions
+              </p>
+              <p className="text-xs text-gray-400">
+                Predict who advances to the Final
+              </p>
+            </div>
+          </div>
+
+          {/* SF deadline banner */}
+          {isSfLocked() ? (
+            <div className="flex items-center gap-2 bg-red-900/20 border border-red-500/40 rounded-xl px-4 py-3">
+              <Lock size={14} className="text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-300 font-semibold">
+                SF predictions are <strong>LOCKED</strong> — deadline was Jul 14
+                at 19:00 WIB.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Deadline: <strong>Jul 14 · 19:00 WIB</strong>. Once locked, no
+                  changes allowed.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-amber-400 tabular-nums flex-shrink-0">
+                {sfDeadlineLabel()}
+              </span>
+            </div>
+          )}
+
+          {sfMatchesMerged.map((match, i) => {
+            const hasPrediction = !!predictions[match.id];
+            const locked =
+              hasPrediction || isSfLocked() || isMatchLockedByTime(match.date);
+            return (
+              <MatchCard
+                key={match.id}
+                match={match}
+                prediction={
+                  predictions[match.id]
+                    ? {
+                        matchId: match.id,
+                        winner: predictions[match.id].winner,
+                        submittedAt: "",
+                      }
+                    : undefined
+                }
+                onPredict={locked ? undefined : setActiveModal}
+                index={i}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Quarter-Final Predictions ── */}
       {r16AllFinished && (
         <div className="space-y-3">
           <div className="flex items-center gap-3 bg-wc-gold/10 border border-wc-gold/30 rounded-xl px-4 py-3">

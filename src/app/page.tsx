@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
-import { R16_MATCHES, QF_MATCHES } from "@/data/matches";
+import { R16_MATCHES, SF_MATCHES } from "@/data/matches";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
@@ -16,17 +16,17 @@ import LiveMatchBanner from "@/components/LiveMatchBanner";
 import { ResultsList } from "@/components/ApiResultCard";
 import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
 
-// QF prediction deadline: July 9 2026 18:00 WIB (= 11:00 UTC)
-const QF_LOCK_DATE = new Date("2026-07-09T11:00:00Z");
-function isQfLocked(): boolean {
-  return Date.now() >= QF_LOCK_DATE.getTime();
+// SF prediction deadline: July 14 2026 19:00 WIB (= 12:00 UTC)
+const SF_LOCK_DATE = new Date("2026-07-14T12:00:00Z");
+function isSfLocked(): boolean {
+  return Date.now() >= SF_LOCK_DATE.getTime();
 }
 
 function numericId(staticId: string): string {
   return staticId.replace(/^[^-]+-m/, "");
 }
 
-function mergeQfMatchData(
+function mergeKnockoutMatchData(
   staticMatches: Match[],
   apiMatches: LiveMatch[],
 ): Match[] {
@@ -88,8 +88,8 @@ export default function HomePage() {
   const {
     recentR16,
     r32Results,
-    r16AllFinished,
     qfMatches: apiQfMatches,
+    sfMatches: apiSfMatches,
   } = useLiveMatches();
 
   // Real-time leaderboard from Firestore
@@ -192,9 +192,24 @@ export default function HomePage() {
   const top5 = leaderboard.slice(0, 5);
   const userEntry = leaderboard.find((e) => e.id === user.uid);
 
-  // QF matches with resolved team names + scores
-  const qfMerged = mergeQfMatchData(QF_MATCHES, apiQfMatches);
-  const qfUnpredicted = qfMerged.filter((m) => !predictions[m.id]);
+  // SF matches with resolved team names + scores from API
+  const sfMerged = mergeKnockoutMatchData(SF_MATCHES, apiSfMatches);
+  const sfUnpredicted = sfMerged.filter((m) => !predictions[m.id]);
+
+  const qfAllFinished =
+    apiQfMatches.length >= 4 &&
+    apiQfMatches.every((m) => m.status === "finished");
+
+  const sfTeamsKnown =
+    apiSfMatches.length >= 1 &&
+    apiSfMatches.some(
+      (m) =>
+        m.homeTeam &&
+        m.homeTeam !== "undefined" &&
+        !m.homeTeam.startsWith("Winner"),
+    );
+
+  const showSfSection = qfAllFinished || sfTeamsKnown;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -239,14 +254,14 @@ export default function HomePage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
-            label: "QF Predicted",
-            value: `${qfMerged.filter((m) => predictions[m.id]).length}/${qfMerged.length}`,
+            label: "SF Predicted",
+            value: `${sfMerged.filter((m) => predictions[m.id]).length}/${sfMerged.length}`,
             icon: Target,
             color: "text-wc-blue",
           },
           {
-            label: "QF Matches",
-            value: qfMerged.length,
+            label: "SF Matches",
+            value: sfMerged.length,
             icon: Zap,
             color: "text-wc-gold",
           },
@@ -282,12 +297,12 @@ export default function HomePage() {
       <div className="grid md:grid-cols-3 gap-6">
         {/* Main content */}
         <div className="md:col-span-2 space-y-6">
-          {/* ── QF Quick Predict (Latest Upcoming) ── */}
-          {r16AllFinished && qfUnpredicted.length > 0 && !isQfLocked() && (
+          {/* ── SF Quick Predict (active when teams are known) ── */}
+          {showSfSection && sfUnpredicted.length > 0 && !isSfLocked() && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
-                  🏆 Quick Predict — Quarter-Finals
+                  🏟️ Quick Predict — Semi-Finals
                 </h2>
                 <Link
                   href="/predict"
@@ -299,10 +314,10 @@ export default function HomePage() {
               <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-2">
                 <Lock size={14} className="text-amber-400 flex-shrink-0" />
                 <p className="text-xs text-amber-300">
-                  Deadline: <strong>Jul 9 · 18:00 WIB</strong> — predict now!
+                  Deadline: <strong>Jul 14 · 19:00 WIB</strong> — predict now!
                 </p>
               </div>
-              {qfUnpredicted.map((match, i) => {
+              {sfUnpredicted.map((match, i) => {
                 const locked = isMatchLockedByTime(match.date);
                 return (
                   <MatchCard
@@ -316,12 +331,12 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* QF already predicted — show summary */}
-          {r16AllFinished && qfUnpredicted.length === 0 && (
+          {/* SF already predicted — show summary */}
+          {showSfSection && sfUnpredicted.length === 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
-                  🏆 Quarter-Finals
+                  🏟️ Semi-Finals
                 </h2>
                 <Link
                   href="/predict"
@@ -330,7 +345,7 @@ export default function HomePage() {
                   View picks <ChevronRight size={12} />
                 </Link>
               </div>
-              {qfMerged.map((match, i) => (
+              {sfMerged.map((match, i) => (
                 <MatchCard
                   key={match.id}
                   match={match}
@@ -352,9 +367,9 @@ export default function HomePage() {
           {/* ── QF Results (show finished matches like R16/R32 results) ── */}
           {apiQfMatches.filter((m) => m.status === "finished").length > 0 && (
             <ResultsList
-              matches={[...apiQfMatches.filter((m) => m.status === "finished")].sort(
-                (a, b) => b.localDate.localeCompare(a.localDate),
-              )}
+              matches={[
+                ...apiQfMatches.filter((m) => m.status === "finished"),
+              ].sort((a, b) => b.localDate.localeCompare(a.localDate))}
               title="QF Results"
               icon="🏆"
               initialShow={4}
