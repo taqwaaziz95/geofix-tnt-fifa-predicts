@@ -9,7 +9,7 @@ import {
   fetchPicksForMatches,
 } from "@/lib/firestore";
 import LeaderboardTable from "@/components/LeaderboardTable";
-import { Trophy, Info, Eye, ChevronUp, ChevronDown, Lock } from "lucide-react";
+import { Trophy, Info, Eye, ChevronUp, ChevronDown } from "lucide-react";
 import { LeaderboardEntry } from "@/types";
 import { cn } from "@/lib/utils";
 import { SEEDED_R16_PREDICTIONS } from "@/data/seeded-predictions";
@@ -168,6 +168,10 @@ export default function LeaderboardPage() {
   const [qfPicks, setQfPicks] = useState<
     Record<string, Record<string, string>>
   >({});
+  // SF picks fetched from Firestore (matchId → playerId → winner)
+  const [sfPicks, setSfPicks] = useState<
+    Record<string, Record<string, string>>
+  >({});
 
   const { allByApiId } = useLiveMatches();
 
@@ -213,6 +217,24 @@ export default function LeaderboardPage() {
   useEffect(() => {
     fetchQfPicks();
   }, [fetchQfPicks]);
+
+  // Fetch SF predictions for all users
+  const fetchSfPicks = useCallback(async () => {
+    if (SF_MATCHES.length === 0 || users.length === 0) return;
+    const userList = users.map((u) => ({
+      uid: u.uid,
+      playerId: (u as FirestoreUser & { playerId?: string }).playerId ?? u.uid,
+    }));
+    const picks = await fetchPicksForMatches(
+      userList,
+      SF_MATCHES.map((m) => m.id),
+    );
+    setSfPicks(picks);
+  }, [users]);
+
+  useEffect(() => {
+    fetchSfPicks();
+  }, [fetchSfPicks]);
 
   const allEntries = toLeaderboardEntries(users);
 
@@ -716,13 +738,13 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
-      {/* ── SF Previously Picked (blurred until QF ends) ───────────────────── */}
+      {/* ── SF Previously Picked (revealed) ───────────────────────────────── */}
       <div className="glass-card p-5">
         <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
           <Eye size={16} className="text-purple-400" /> SF Previously Picked
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          Semi-final picks are locked until quarter-finals are complete
+          All SF picks revealed · ✅ correct · ❌ wrong
         </p>
         <div className="overflow-x-auto -mx-1 px-1">
           <table className="w-full text-xs min-w-[320px]">
@@ -731,17 +753,25 @@ export default function LeaderboardPage() {
                 <th className="text-left pb-2 font-medium text-gray-500 w-24 pr-3">
                   Player
                 </th>
-                {SF_MATCHES.map((m) => (
-                  <th
-                    key={m.id}
-                    className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[72px]"
-                  >
-                    <div className="font-bold text-gray-400">{m.label}</div>
-                    <div className="text-[10px] text-gray-600 font-normal">
-                      🔒
-                    </div>
-                  </th>
-                ))}
+                {SF_MATCHES.map((m) => {
+                  const winner = getWinner(m.id, SF_MATCHES, allByApiId);
+                  return (
+                    <th
+                      key={m.id}
+                      className="text-center pb-2 font-medium text-gray-500 px-1 min-w-[72px]"
+                    >
+                      <div className="font-bold text-gray-400">{m.label}</div>
+                      <div className="text-[10px] text-gray-600 font-normal">
+                        {`${m.homeTeam.flag}v${m.awayTeam.flag}`}
+                      </div>
+                      {winner && (
+                        <div className="text-[10px] text-green-400 font-bold mt-0.5">
+                          {winner}
+                        </div>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -780,33 +810,41 @@ export default function LeaderboardPage() {
                         </span>
                       </div>
                     </td>
-                    {SF_MATCHES.map((m) => (
-                      <td key={m.id} className="text-center py-2 px-1">
-                        <span
-                          className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold select-none"
-                          style={{
-                            filter: "blur(5px)",
-                            background: "rgba(255,255,255,0.07)",
-                            color: "#aaa",
-                          }}
-                        >
-                          ???
-                        </span>
-                      </td>
-                    ))}
+                    {SF_MATCHES.map((m) => {
+                      const pickedWinner = sfPicks[m.id]?.[playerId] ?? null;
+                      const matchWin = getWinner(m.id, SF_MATCHES, allByApiId);
+                      const isCorrect = matchWin && pickedWinner === matchWin;
+                      const isWrong =
+                        matchWin && pickedWinner && pickedWinner !== matchWin;
+                      return (
+                        <td key={m.id} className="text-center py-2 px-1">
+                          {pickedWinner ? (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-semibold",
+                                isCorrect
+                                  ? "bg-green-900/30 text-green-400"
+                                  : isWrong
+                                    ? "bg-red-900/30 text-red-400"
+                                    : "bg-white/5 text-gray-300",
+                              )}
+                            >
+                              {isCorrect ? "✅ " : isWrong ? "❌ " : ""}
+                              {pickedWinner.split(" ").slice(-1)[0]}
+                            </span>
+                          ) : (
+                            <span className="text-gray-600 text-[10px]">
+                              no pick
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
-
-        <div className="mt-4 flex items-start gap-2 bg-purple-900/15 border border-purple-500/20 rounded-xl px-4 py-3">
-          <Lock size={13} className="text-purple-400 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-purple-300">
-            Semi-final predictions will be revealed{" "}
-            <strong>after all Quarter-Final matches have ended</strong>.
-          </p>
         </div>
       </div>
 
