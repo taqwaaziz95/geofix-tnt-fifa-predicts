@@ -8,6 +8,7 @@ import {
   R16_MATCHES,
   QF_MATCHES,
   SF_MATCHES,
+  FINAL_MATCHES,
 } from "@/data/matches";
 import {
   getSeededPredictionsForPlayer,
@@ -51,6 +52,19 @@ function isSfLocked(): boolean {
 function sfDeadlineLabel(): string {
   const now = Date.now();
   const diff = SF_LOCK_DATE.getTime() - now;
+  if (diff <= 0) return "Predictions are LOCKED";
+  const h = Math.floor(diff / 3_600_000);
+  const m = Math.floor((diff % 3_600_000) / 60_000);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    return `Locks in ${d}d ${h % 24}h`;
+  }
+  return h > 0 ? `Locks in ${h}h ${m}m` : `Locks in ${m}m`;
+}
+
+function finalDeadlineLabel(finalDate: string): string {
+  const lockAt = new Date(finalDate).getTime() - 60 * 60 * 1000;
+  const diff = lockAt - Date.now();
   if (diff <= 0) return "Predictions are LOCKED";
   const h = Math.floor(diff / 3_600_000);
   const m = Math.floor((diff % 3_600_000) / 60_000);
@@ -114,6 +128,60 @@ function mergeKnockoutMatchData(
   });
 }
 
+function winnerTeamFromApiMatch(match?: LiveMatch) {
+  if (!match || match.status !== "finished") return null;
+  const hasPenalties =
+    match.homePenaltyScore != null && match.awayPenaltyScore != null;
+  const homeWins = hasPenalties
+    ? match.homePenaltyScore! > match.awayPenaltyScore!
+    : match.homeScore > match.awayScore;
+  const awayWins = hasPenalties
+    ? match.awayPenaltyScore! > match.homePenaltyScore!
+    : match.awayScore > match.homeScore;
+  if (!homeWins && !awayWins) return null;
+  return homeWins
+    ? { name: match.homeTeam, flag: match.homeFlag }
+    : { name: match.awayTeam, flag: match.awayFlag };
+}
+
+function mergeFinalMatchData(
+  staticMatches: Match[],
+  apiFinalMatches: LiveMatch[],
+  apiSfMatches: LiveMatch[],
+): Match[] {
+  const merged = mergeKnockoutMatchData(staticMatches, apiFinalMatches);
+  const sf1Winner = winnerTeamFromApiMatch(
+    apiSfMatches.find((m) => m.id === "101"),
+  );
+  const sf2Winner = winnerTeamFromApiMatch(
+    apiSfMatches.find((m) => m.id === "102"),
+  );
+
+  return merged.map((match) => {
+    if (match.stage !== "FINAL") return match;
+    const apiFinal = apiFinalMatches.find((m) => m.id === numericId(match.id));
+    const apiHasTeams =
+      apiFinal?.homeTeam &&
+      apiFinal.awayTeam &&
+      apiFinal.homeTeam !== "undefined" &&
+      apiFinal.awayTeam !== "undefined";
+    if (apiHasTeams || !sf1Winner || !sf2Winner) return match;
+    return {
+      ...match,
+      homeTeam: {
+        ...match.homeTeam,
+        name: sf1Winner.name,
+        flag: sf1Winner.flag,
+      },
+      awayTeam: {
+        ...match.awayTeam,
+        name: sf2Winner.name,
+        flag: sf2Winner.flag,
+      },
+    };
+  });
+}
+
 // Keep old alias for backwards compat
 const mergeQfMatchData = mergeKnockoutMatchData;
 
@@ -125,6 +193,7 @@ export default function PredictPage() {
     r16AllFinished,
     qfMatches: apiQfMatches,
     sfMatches: apiSfMatches,
+    finalMatches: apiFinalMatches,
   } = useLiveMatches();
 
   // Determine if this user is an existing player with locked predictions
@@ -157,6 +226,16 @@ export default function PredictPage() {
     [apiSfMatches],
   );
 
+  const finalMatchesMerged = useMemo(
+    () =>
+      mergeFinalMatchData(
+        FINAL_MATCHES.filter((m) => m.stage === "FINAL"),
+        apiFinalMatches,
+        apiSfMatches,
+      ),
+    [apiFinalMatches, apiSfMatches],
+  );
+
   // Show SF section when all 4 QF matches are finished OR when API already has SF team names
   const qfAllFinished = useMemo(
     () =>
@@ -178,6 +257,27 @@ export default function PredictPage() {
   );
 
   const showSfSection = qfAllFinished || sfTeamsKnown;
+
+  const sfAllFinished = useMemo(
+    () =>
+      apiSfMatches.length >= 2 &&
+      apiSfMatches.every((m) => m.status === "finished"),
+    [apiSfMatches],
+  );
+
+  const finalTeamsKnown = useMemo(
+    () =>
+      finalMatchesMerged.some(
+        (m) =>
+          m.homeTeam.name &&
+          m.awayTeam.name &&
+          !m.homeTeam.name.startsWith("Winner") &&
+          !m.awayTeam.name.startsWith("Winner"),
+      ),
+    [finalMatchesMerged],
+  );
+
+  const showFinalSection = sfAllFinished || finalTeamsKnown;
 
   if (loading) {
     return (
@@ -261,12 +361,13 @@ export default function PredictPage() {
         <h3 className="font-display font-bold text-sm text-gray-400 mb-3">
           Points Guide
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {[
             { stage: "Round of 32", pts: 2, color: "text-gray-400" },
             { stage: "Round of 16", pts: 4, color: "text-wc-blue" },
             { stage: "Quarter-final", pts: 8, color: "text-wc-purple" },
             { stage: "Semi-final", pts: 16, color: "text-wc-gold" },
+            { stage: "Final", pts: 20, color: "text-yellow-300" },
           ].map((item) => (
             <div
               key={item.stage}
@@ -282,6 +383,57 @@ export default function PredictPage() {
       </div>
 
       {/* ── Semi-Final Predictions (TOP — current active stage) ── */}
+      {showFinalSection && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 bg-yellow-400/10 border border-yellow-400/30 rounded-xl px-4 py-3">
+            <span className="text-xl">🏆</span>
+            <div>
+              <p className="font-display font-bold text-yellow-300 text-sm">
+                Final Prediction
+              </p>
+              <p className="text-xs text-gray-400">
+                Pick the World Cup champion
+              </p>
+            </div>
+          </div>
+
+          {finalMatchesMerged.map((match, i) => {
+            const hasPrediction = !!predictions[match.id];
+            const locked = hasPrediction || isMatchLockedByTime(match.date);
+            return (
+              <div key={match.id} className="space-y-2">
+                <div className="flex items-center justify-between gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                    <p className="text-xs text-amber-300">
+                      Deadline: <strong>1 hour before kickoff</strong>. Once
+                      locked, no changes allowed.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-amber-400 tabular-nums flex-shrink-0">
+                    {finalDeadlineLabel(match.date)}
+                  </span>
+                </div>
+                <MatchCard
+                  match={match}
+                  prediction={
+                    predictions[match.id]
+                      ? {
+                          matchId: match.id,
+                          winner: predictions[match.id].winner,
+                          submittedAt: "",
+                        }
+                      : undefined
+                  }
+                  onPredict={locked ? undefined : setActiveModal}
+                  index={i}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {showSfSection && (
         <div className="space-y-3">
           <div className="flex items-center gap-3 bg-wc-gold/10 border border-wc-gold/30 rounded-xl px-4 py-3">

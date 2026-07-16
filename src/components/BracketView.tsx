@@ -55,6 +55,74 @@ function mergeMatch(sm: Match, api: LiveMatch | undefined): Match {
   };
 }
 
+function apiResultTeams(match?: LiveMatch) {
+  if (!match || match.status !== "finished") return null;
+  const hasPenalties =
+    match.homePenaltyScore != null && match.awayPenaltyScore != null;
+  const homeWon = hasPenalties
+    ? match.homePenaltyScore! > match.awayPenaltyScore!
+    : match.homeScore > match.awayScore;
+  const awayWon = hasPenalties
+    ? match.awayPenaltyScore! > match.homePenaltyScore!
+    : match.awayScore > match.homeScore;
+  if (!homeWon && !awayWon) return null;
+
+  const home = {
+    name: match.homeTeam,
+    code: match.homeTeam.slice(0, 3).toUpperCase(),
+    flag: match.homeFlag,
+  };
+  const away = {
+    name: match.awayTeam,
+    code: match.awayTeam.slice(0, 3).toUpperCase(),
+    flag: match.awayFlag,
+  };
+
+  return homeWon
+    ? { winner: home, loser: away }
+    : { winner: away, loser: home };
+}
+
+function mergeFinalsFromSemiFinals(
+  staticMatches: Match[],
+  allByApiId: Record<string, LiveMatch>,
+): Match[] {
+  const merged = staticMatches.map((sm) =>
+    mergeMatch(sm, allByApiId[numId(sm.id)]),
+  );
+  const sf1 = apiResultTeams(allByApiId["101"]);
+  const sf2 = apiResultTeams(allByApiId["102"]);
+  if (!sf1 || !sf2) return merged;
+
+  return merged.map((match) => {
+    const api = allByApiId[numId(match.id)];
+    const apiHasTeams =
+      api?.homeTeam &&
+      api.awayTeam &&
+      api.homeTeam !== "undefined" &&
+      api.awayTeam !== "undefined";
+    if (apiHasTeams) return match;
+
+    if (match.stage === "FINAL") {
+      return {
+        ...match,
+        homeTeam: { ...match.homeTeam, ...sf1.winner },
+        awayTeam: { ...match.awayTeam, ...sf2.winner },
+      };
+    }
+
+    if (match.stage === "THIRD") {
+      return {
+        ...match,
+        homeTeam: { ...match.homeTeam, ...sf1.loser },
+        awayTeam: { ...match.awayTeam, ...sf2.loser },
+      };
+    }
+
+    return match;
+  });
+}
+
 // const BIG_TEAMS = new Set([
 //   "Brazil",
 //   "Germany",
@@ -289,7 +357,7 @@ export default function BracketView() {
     [allByApiId],
   );
   const finals = useMemo(
-    () => FINAL_MATCHES.map((sm) => mergeMatch(sm, allByApiId[numId(sm.id)])),
+    () => mergeFinalsFromSemiFinals(FINAL_MATCHES, allByApiId),
     [allByApiId],
   );
 

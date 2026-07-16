@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { subscribeToLeaderboard, FirestoreUser } from "@/lib/firestore";
-import { R16_MATCHES, SF_MATCHES } from "@/data/matches";
+import { R16_MATCHES, SF_MATCHES, FINAL_MATCHES } from "@/data/matches";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import MatchCard from "@/components/MatchCard";
 import PredictionModal from "@/components/PredictionModal";
@@ -56,6 +56,60 @@ function mergeKnockoutMatchData(
   });
 }
 
+function winnerTeamFromApiMatch(match?: LiveMatch) {
+  if (!match || match.status !== "finished") return null;
+  const hasPenalties =
+    match.homePenaltyScore != null && match.awayPenaltyScore != null;
+  const homeWins = hasPenalties
+    ? match.homePenaltyScore! > match.awayPenaltyScore!
+    : match.homeScore > match.awayScore;
+  const awayWins = hasPenalties
+    ? match.awayPenaltyScore! > match.homePenaltyScore!
+    : match.awayScore > match.homeScore;
+  if (!homeWins && !awayWins) return null;
+  return homeWins
+    ? { name: match.homeTeam, flag: match.homeFlag }
+    : { name: match.awayTeam, flag: match.awayFlag };
+}
+
+function mergeFinalMatchData(
+  staticMatches: Match[],
+  apiFinalMatches: LiveMatch[],
+  apiSfMatches: LiveMatch[],
+): Match[] {
+  const merged = mergeKnockoutMatchData(staticMatches, apiFinalMatches);
+  const sf1Winner = winnerTeamFromApiMatch(
+    apiSfMatches.find((m) => m.id === "101"),
+  );
+  const sf2Winner = winnerTeamFromApiMatch(
+    apiSfMatches.find((m) => m.id === "102"),
+  );
+
+  return merged.map((match) => {
+    if (match.stage !== "FINAL") return match;
+    const apiFinal = apiFinalMatches.find((m) => m.id === numericId(match.id));
+    const apiHasTeams =
+      apiFinal?.homeTeam &&
+      apiFinal.awayTeam &&
+      apiFinal.homeTeam !== "undefined" &&
+      apiFinal.awayTeam !== "undefined";
+    if (apiHasTeams || !sf1Winner || !sf2Winner) return match;
+    return {
+      ...match,
+      homeTeam: {
+        ...match.homeTeam,
+        name: sf1Winner.name,
+        flag: sf1Winner.flag,
+      },
+      awayTeam: {
+        ...match.awayTeam,
+        name: sf2Winner.name,
+        flag: sf2Winner.flag,
+      },
+    };
+  });
+}
+
 function firestoreUsersToLeaderboard(users: FirestoreUser[]) {
   return [...users]
     .sort(
@@ -90,6 +144,7 @@ export default function HomePage() {
     r32Results,
     qfMatches: apiQfMatches,
     sfMatches: apiSfMatches,
+    finalMatches: apiFinalMatches,
   } = useLiveMatches();
 
   // Real-time leaderboard from Firestore
@@ -195,6 +250,12 @@ export default function HomePage() {
   // SF matches with resolved team names + scores from API
   const sfMerged = mergeKnockoutMatchData(SF_MATCHES, apiSfMatches);
   const sfUnpredicted = sfMerged.filter((m) => !predictions[m.id]);
+  const finalMerged = mergeFinalMatchData(
+    FINAL_MATCHES.filter((m) => m.stage === "FINAL"),
+    apiFinalMatches,
+    apiSfMatches,
+  );
+  const finalUnpredicted = finalMerged.filter((m) => !predictions[m.id]);
 
   const qfAllFinished =
     apiQfMatches.length >= 4 &&
@@ -210,6 +271,17 @@ export default function HomePage() {
     );
 
   const showSfSection = qfAllFinished || sfTeamsKnown;
+  const sfAllFinished =
+    apiSfMatches.length >= 2 &&
+    apiSfMatches.every((m) => m.status === "finished");
+  const finalTeamsKnown = finalMerged.some(
+    (m) =>
+      m.homeTeam.name &&
+      m.awayTeam.name &&
+      !m.homeTeam.name.startsWith("Winner") &&
+      !m.awayTeam.name.startsWith("Winner"),
+  );
+  const showFinalSection = sfAllFinished || finalTeamsKnown;
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -254,14 +326,14 @@ export default function HomePage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
-            label: "SF Predicted",
-            value: `${sfMerged.filter((m) => predictions[m.id]).length}/${sfMerged.length}`,
+            label: "Final Predicted",
+            value: `${finalMerged.filter((m) => predictions[m.id]).length}/${finalMerged.length}`,
             icon: Target,
             color: "text-wc-blue",
           },
           {
-            label: "SF Matches",
-            value: sfMerged.length,
+            label: "Final Match",
+            value: showFinalSection ? "Open" : "Soon",
             icon: Zap,
             color: "text-wc-gold",
           },
@@ -298,6 +370,72 @@ export default function HomePage() {
         {/* Main content */}
         <div className="md:col-span-2 space-y-6">
           {/* ── SF Quick Predict (active when teams are known) ── */}
+          {showFinalSection && finalUnpredicted.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+                  🏆 Quick Predict — World Cup Final
+                </h2>
+                <Link
+                  href="/predict"
+                  className="text-xs text-wc-gold hover:text-wc-gold-light flex items-center gap-1 transition-colors"
+                >
+                  View all <ChevronRight size={12} />
+                </Link>
+              </div>
+              <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-2">
+                <Lock size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-300">
+                  Final predictions are open. Deadline is{" "}
+                  <strong>1 hour before kickoff</strong>.
+                </p>
+              </div>
+              {finalUnpredicted.map((match, i) => {
+                const locked = isMatchLockedByTime(match.date);
+                return (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    onPredict={locked ? undefined : setActiveModal}
+                    index={i}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {showFinalSection && finalUnpredicted.length === 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg font-bold text-white flex items-center gap-2">
+                  🏆 World Cup Final
+                </h2>
+                <Link
+                  href="/predict"
+                  className="text-xs text-wc-gold hover:text-wc-gold-light flex items-center gap-1 transition-colors"
+                >
+                  View pick <ChevronRight size={12} />
+                </Link>
+              </div>
+              {finalMerged.map((match, i) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  prediction={
+                    predictions[match.id]
+                      ? {
+                          matchId: match.id,
+                          winner: predictions[match.id].winner,
+                          submittedAt: "",
+                        }
+                      : undefined
+                  }
+                  index={i}
+                />
+              ))}
+            </div>
+          )}
+
           {showSfSection && sfUnpredicted.length > 0 && !isSfLocked() && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
