@@ -7,15 +7,21 @@ import {
   subscribeToLeaderboard,
   FirestoreUser,
   fetchPicksForMatches,
+  subscribeToPicksForMatches,
 } from "@/lib/firestore";
 import LeaderboardTable from "@/components/LeaderboardTable";
 import { Trophy, Info, Eye, ChevronUp, ChevronDown } from "lucide-react";
-import { LeaderboardEntry } from "@/types";
+import { LeaderboardEntry, Match } from "@/types";
 import { cn } from "@/lib/utils";
 import { SEEDED_R16_PREDICTIONS } from "@/data/seeded-predictions";
-import { R16_MATCHES, QF_MATCHES, SF_MATCHES } from "@/data/matches";
+import {
+  R16_MATCHES,
+  QF_MATCHES,
+  SF_MATCHES,
+  FINAL_MATCHES,
+} from "@/data/matches";
 import { PLAYERS } from "@/data/players";
-import { useLiveMatches } from "@/hooks/useLiveMatches";
+import { useLiveMatches, LiveMatch } from "@/hooks/useLiveMatches";
 
 type StageFilter = "all" | "group" | "r32" | "r16" | "qf" | "sf" | "final";
 
@@ -77,7 +83,7 @@ function toLeaderboardEntries(users: FirestoreUser[]): LeaderboardEntry[] {
 /** Derive winner from static match data first, then fall back to live API. */
 function getWinner(
   matchId: string,
-  allMatches: typeof R16_MATCHES,
+  allMatches: Match[],
   allByApiId: Record<
     string,
     {
@@ -104,7 +110,7 @@ function getWinner(
     if (ap > hp) return m.awayTeam.name;
   }
   // Live API fallback
-  const numId = matchId.replace(/^[^-]+-m/, "");
+  const numId = matchId.match(/(\d+)$/)?.[1] ?? matchId;
   const api = allByApiId[numId];
   if (api?.status === "finished") {
     if (api.homePenaltyScore !== null && api.awayPenaltyScore !== null)
@@ -127,6 +133,65 @@ function playerFirstName(playerId: string): string {
   const p = PLAYERS.find((x) => x.id === playerId);
   if (!p) return playerId;
   return p.name.split(" ")[0];
+}
+
+function apiResultTeams(match?: LiveMatch) {
+  if (!match || match.status !== "finished") return null;
+  const hasPenalties =
+    match.homePenaltyScore != null && match.awayPenaltyScore != null;
+  const homeWon = hasPenalties
+    ? match.homePenaltyScore! > match.awayPenaltyScore!
+    : match.homeScore > match.awayScore;
+  const awayWon = hasPenalties
+    ? match.awayPenaltyScore! > match.homePenaltyScore!
+    : match.awayScore > match.homeScore;
+  if (!homeWon && !awayWon) return null;
+
+  const home = { name: match.homeTeam, flag: match.homeFlag };
+  const away = { name: match.awayTeam, flag: match.awayFlag };
+  return homeWon
+    ? { winner: home, loser: away }
+    : { winner: away, loser: home };
+}
+
+function resolveFinalMatchTeams(
+  match: Match,
+  allByApiId: Record<string, LiveMatch>,
+) {
+  const apiId = match.id.match(/(\d+)$/)?.[1] ?? match.id;
+  const api = allByApiId[apiId];
+  if (
+    api?.homeTeam &&
+    api.awayTeam &&
+    api.homeTeam !== "undefined" &&
+    api.awayTeam !== "undefined"
+  ) {
+    return {
+      home: { name: api.homeTeam, flag: api.homeFlag },
+      away: { name: api.awayTeam, flag: api.awayFlag },
+    };
+  }
+
+  const sf1 = apiResultTeams(allByApiId["101"]);
+  const sf2 = apiResultTeams(allByApiId["102"]);
+  if (!sf1 || !sf2) {
+    return {
+      home: { name: match.homeTeam.name, flag: match.homeTeam.flag },
+      away: { name: match.awayTeam.name, flag: match.awayTeam.flag },
+    };
+  }
+
+  if (match.stage === "FINAL") {
+    return { home: sf1.winner, away: sf2.winner };
+  }
+  if (match.stage === "THIRD") {
+    return { home: sf1.loser, away: sf2.loser };
+  }
+
+  return {
+    home: { name: match.homeTeam.name, flag: match.homeTeam.flag },
+    away: { name: match.awayTeam.name, flag: match.awayTeam.flag },
+  };
 }
 
 type SortCol = "group" | "ko" | "r32" | "r16" | "qf" | "sf" | "final" | "total";
@@ -154,6 +219,154 @@ function getSortValue(entry: LeaderboardEntry, col: SortCol): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface LivePickedTableProps {
+  title: string;
+  subtitle: string;
+  match: Match;
+  picks: Record<string, Record<string, string>>;
+  users: FirestoreUser[];
+  highlightUid?: string;
+  allByApiId: Record<string, LiveMatch>;
+  accentClass: string;
+}
+
+function LivePickedTable({
+  title,
+  subtitle,
+  match,
+  picks,
+  users,
+  highlightUid,
+  allByApiId,
+  accentClass,
+}: LivePickedTableProps) {
+  const teams = resolveFinalMatchTeams(match, allByApiId);
+  const winner = getWinner(match.id, FINAL_MATCHES, allByApiId);
+  const sortedUsers = [...users].sort(
+    (a, b) =>
+      b.totalPoints - a.totalPoints ||
+      b.correctPredictions - a.correctPredictions,
+  );
+  const pickedCount = sortedUsers.filter((u) => {
+    const playerId = (u as FirestoreUser & { playerId?: string }).playerId;
+    return !!playerId && !!picks[match.id]?.[playerId];
+  }).length;
+
+  return (
+    <div className="glass-card p-5">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
+            <Eye size={16} className={accentClass} /> {title}
+          </h2>
+          <p className="text-xs text-gray-500">{subtitle}</p>
+        </div>
+        <div className="text-right text-xs text-gray-500 flex-shrink-0">
+          <p className="font-bold text-gray-300">
+            {teams.home.flag} {teams.home.name}
+          </p>
+          <p className="text-gray-600">vs</p>
+          <p className="font-bold text-gray-300">
+            {teams.away.flag} {teams.away.name}
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full text-xs min-w-[420px]">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="text-left pb-2 font-medium text-gray-500 pr-3">
+                Player
+              </th>
+              <th className="text-center pb-2 font-medium text-gray-500 px-2">
+                Pick
+              </th>
+              <th className="text-right pb-2 font-medium text-gray-500 pl-2">
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {sortedUsers.map((u) => {
+              const playerId =
+                (u as FirestoreUser & { playerId?: string }).playerId ?? u.uid;
+              const pickedWinner = picks[match.id]?.[playerId] ?? null;
+              const isMe = u.uid === highlightUid;
+              const isCorrect = winner && pickedWinner === winner;
+              const isWrong = winner && pickedWinner && pickedWinner !== winner;
+
+              return (
+                <tr
+                  key={u.uid}
+                  className={cn(
+                    "transition-colors hover:bg-white/3",
+                    isMe && "bg-wc-gold/5",
+                  )}
+                >
+                  <td className="py-2.5 pr-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-base">{u.avatar ?? "👤"}</span>
+                      <span
+                        className={cn(
+                          "font-medium",
+                          isMe ? "text-wc-gold" : "text-gray-300",
+                        )}
+                      >
+                        {u.displayName.split(" ")[0]}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="text-center py-2.5 px-2">
+                    {pickedWinner ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center px-2 py-1 rounded font-semibold",
+                          isCorrect
+                            ? "bg-green-900/30 text-green-400"
+                            : isWrong
+                              ? "bg-red-900/30 text-red-400"
+                              : "bg-white/5 text-gray-300",
+                        )}
+                      >
+                        {pickedWinner}
+                      </span>
+                    ) : (
+                      <span className="text-gray-600 text-[10px]">no pick</span>
+                    )}
+                  </td>
+                  <td className="text-right py-2.5 pl-2">
+                    {winner && pickedWinner ? (
+                      <span
+                        className={cn(
+                          "font-bold",
+                          isCorrect ? "text-green-400" : "text-red-400",
+                        )}
+                      >
+                        {isCorrect ? "correct" : "wrong"}
+                      </span>
+                    ) : winner ? (
+                      <span className="text-gray-600">missed</span>
+                    ) : pickedWinner ? (
+                      <span className="text-wc-gold">picked</span>
+                    ) : (
+                      <span className="text-gray-700">pending</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="text-[11px] text-gray-600 mt-3">
+        {pickedCount}/{sortedUsers.length} players picked
+      </p>
+    </div>
+  );
+}
+
 const SCORE_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function LeaderboardPage() {
@@ -170,6 +383,9 @@ export default function LeaderboardPage() {
   >({});
   // SF picks fetched from Firestore (matchId → playerId → winner)
   const [sfPicks, setSfPicks] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [finalPicks, setFinalPicks] = useState<
     Record<string, Record<string, string>>
   >({});
 
@@ -236,6 +452,19 @@ export default function LeaderboardPage() {
     fetchSfPicks();
   }, [fetchSfPicks]);
 
+  useEffect(() => {
+    if (users.length === 0) return;
+    const userList = users.map((u) => ({
+      uid: u.uid,
+      playerId: (u as FirestoreUser & { playerId?: string }).playerId ?? u.uid,
+    }));
+    return subscribeToPicksForMatches(
+      userList,
+      FINAL_MATCHES.map((m) => m.id),
+      setFinalPicks,
+    );
+  }, [users]);
+
   const allEntries = toLeaderboardEntries(users);
 
   // Re-rank entries by the selected stage's points
@@ -253,6 +482,8 @@ export default function LeaderboardPage() {
     const diff = getSortValue(a, sortCol) - getSortValue(b, sortCol);
     return sortDir === "desc" ? -diff : diff;
   });
+  const thirdPlaceMatch = FINAL_MATCHES.find((m) => m.stage === "THIRD");
+  const finalMatch = FINAL_MATCHES.find((m) => m.stage === "FINAL");
 
   function handleSortCol(col: SortCol) {
     if (col === sortCol) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -507,6 +738,32 @@ export default function LeaderboardPage() {
       </div>
 
       {/* ── R16 Previously Picked (always open — all matches done) ─────────── */}
+      {thirdPlaceMatch && (
+        <LivePickedTable
+          title='Picked "Rank 3"'
+          subtitle="Live picks for the third-place match"
+          match={thirdPlaceMatch}
+          picks={finalPicks}
+          users={users}
+          highlightUid={user?.uid}
+          allByApiId={allByApiId}
+          accentClass="text-amber-500"
+        />
+      )}
+
+      {finalMatch && (
+        <LivePickedTable
+          title='Picked "Final" Teams'
+          subtitle="Live champion picks for the World Cup Final"
+          match={finalMatch}
+          picks={finalPicks}
+          users={users}
+          highlightUid={user?.uid}
+          allByApiId={allByApiId}
+          accentClass="text-yellow-300"
+        />
+      )}
+
       <div className="glass-card p-5">
         <h2 className="font-display font-bold text-white flex items-center gap-2 mb-1">
           <Eye size={16} className="text-wc-purple" /> R16 Previously Picked

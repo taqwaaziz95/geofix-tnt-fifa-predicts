@@ -128,7 +128,7 @@ function mergeKnockoutMatchData(
   });
 }
 
-function winnerTeamFromApiMatch(match?: LiveMatch) {
+function resultTeamsFromApiMatch(match?: LiveMatch) {
   if (!match || match.status !== "finished") return null;
   const hasPenalties =
     match.homePenaltyScore != null && match.awayPenaltyScore != null;
@@ -139,9 +139,11 @@ function winnerTeamFromApiMatch(match?: LiveMatch) {
     ? match.awayPenaltyScore! > match.homePenaltyScore!
     : match.awayScore > match.homeScore;
   if (!homeWins && !awayWins) return null;
+  const home = { name: match.homeTeam, flag: match.homeFlag };
+  const away = { name: match.awayTeam, flag: match.awayFlag };
   return homeWins
-    ? { name: match.homeTeam, flag: match.homeFlag }
-    : { name: match.awayTeam, flag: match.awayFlag };
+    ? { winner: home, loser: away }
+    : { winner: away, loser: home };
 }
 
 function mergeFinalMatchData(
@@ -150,33 +152,39 @@ function mergeFinalMatchData(
   apiSfMatches: LiveMatch[],
 ): Match[] {
   const merged = mergeKnockoutMatchData(staticMatches, apiFinalMatches);
-  const sf1Winner = winnerTeamFromApiMatch(
+  const sf1 = resultTeamsFromApiMatch(
     apiSfMatches.find((m) => m.id === "101"),
   );
-  const sf2Winner = winnerTeamFromApiMatch(
+  const sf2 = resultTeamsFromApiMatch(
     apiSfMatches.find((m) => m.id === "102"),
   );
 
   return merged.map((match) => {
-    if (match.stage !== "FINAL") return match;
     const apiFinal = apiFinalMatches.find((m) => m.id === numericId(match.id));
     const apiHasTeams =
       apiFinal?.homeTeam &&
       apiFinal.awayTeam &&
       apiFinal.homeTeam !== "undefined" &&
       apiFinal.awayTeam !== "undefined";
-    if (apiHasTeams || !sf1Winner || !sf2Winner) return match;
+    if (apiHasTeams || !sf1 || !sf2) return match;
+    const teams =
+      match.stage === "FINAL"
+        ? { home: sf1.winner, away: sf2.winner }
+        : match.stage === "THIRD"
+          ? { home: sf1.loser, away: sf2.loser }
+          : null;
+    if (!teams) return match;
     return {
       ...match,
       homeTeam: {
         ...match.homeTeam,
-        name: sf1Winner.name,
-        flag: sf1Winner.flag,
+        name: teams.home.name,
+        flag: teams.home.flag,
       },
       awayTeam: {
         ...match.awayTeam,
-        name: sf2Winner.name,
-        flag: sf2Winner.flag,
+        name: teams.away.name,
+        flag: teams.away.flag,
       },
     };
   });
@@ -229,7 +237,7 @@ export default function PredictPage() {
   const finalMatchesMerged = useMemo(
     () =>
       mergeFinalMatchData(
-        FINAL_MATCHES.filter((m) => m.stage === "FINAL"),
+        FINAL_MATCHES,
         apiFinalMatches,
         apiSfMatches,
       ),
@@ -272,7 +280,9 @@ export default function PredictPage() {
           m.homeTeam.name &&
           m.awayTeam.name &&
           !m.homeTeam.name.startsWith("Winner") &&
-          !m.awayTeam.name.startsWith("Winner"),
+          !m.homeTeam.name.startsWith("Loser") &&
+          !m.awayTeam.name.startsWith("Winner") &&
+          !m.awayTeam.name.startsWith("Loser"),
       ),
     [finalMatchesMerged],
   );
@@ -361,12 +371,13 @@ export default function PredictPage() {
         <h3 className="font-display font-bold text-sm text-gray-400 mb-3">
           Points Guide
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             { stage: "Round of 32", pts: 2, color: "text-gray-400" },
             { stage: "Round of 16", pts: 4, color: "text-wc-blue" },
             { stage: "Quarter-final", pts: 8, color: "text-wc-purple" },
             { stage: "Semi-final", pts: 16, color: "text-wc-gold" },
+            { stage: "Rank 3", pts: 8, color: "text-amber-500" },
             { stage: "Final", pts: 20, color: "text-yellow-300" },
           ].map((item) => (
             <div
@@ -389,10 +400,10 @@ export default function PredictPage() {
             <span className="text-xl">🏆</span>
             <div>
               <p className="font-display font-bold text-yellow-300 text-sm">
-                Final Prediction
+                Final & Rank 3 Predictions
               </p>
               <p className="text-xs text-gray-400">
-                Pick the World Cup champion
+                Pick third place and the World Cup champion
               </p>
             </div>
           </div>

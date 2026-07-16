@@ -191,3 +191,57 @@ export async function fetchPicksForMatches(
 
   return result;
 }
+
+export function subscribeToPicksForMatches(
+  users: { uid: string; playerId: string }[],
+  matchIds: string[],
+  callback: (picks: Record<string, Record<string, string>>) => void,
+): () => void {
+  if (users.length === 0 || matchIds.length === 0) {
+    callback({});
+    return () => {};
+  }
+
+  try {
+    const database = db();
+    const picks: Record<string, Record<string, string>> = {};
+    matchIds.forEach((id) => (picks[id] = {}));
+
+    const emit = () => {
+      callback(
+        Object.fromEntries(
+          Object.entries(picks).map(([matchId, playerPicks]) => [
+            matchId,
+            { ...playerPicks },
+          ]),
+        ),
+      );
+    };
+
+    emit();
+
+    const unsubs = users.flatMap(({ uid, playerId }) =>
+      matchIds.map((matchId) =>
+        onSnapshot(
+          doc(database, "predictions", uid, "matches", matchId),
+          (snap) => {
+            if (snap.exists()) {
+              const winner = (snap.data() as { winner?: string }).winner;
+              if (winner) picks[matchId][playerId] = winner;
+            } else {
+              delete picks[matchId][playerId];
+            }
+            emit();
+          },
+        ),
+      ),
+    );
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  } catch {
+    callback({});
+    return () => {};
+  }
+}

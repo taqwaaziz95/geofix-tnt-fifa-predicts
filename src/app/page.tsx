@@ -56,7 +56,7 @@ function mergeKnockoutMatchData(
   });
 }
 
-function winnerTeamFromApiMatch(match?: LiveMatch) {
+function resultTeamsFromApiMatch(match?: LiveMatch) {
   if (!match || match.status !== "finished") return null;
   const hasPenalties =
     match.homePenaltyScore != null && match.awayPenaltyScore != null;
@@ -67,9 +67,11 @@ function winnerTeamFromApiMatch(match?: LiveMatch) {
     ? match.awayPenaltyScore! > match.homePenaltyScore!
     : match.awayScore > match.homeScore;
   if (!homeWins && !awayWins) return null;
+  const home = { name: match.homeTeam, flag: match.homeFlag };
+  const away = { name: match.awayTeam, flag: match.awayFlag };
   return homeWins
-    ? { name: match.homeTeam, flag: match.homeFlag }
-    : { name: match.awayTeam, flag: match.awayFlag };
+    ? { winner: home, loser: away }
+    : { winner: away, loser: home };
 }
 
 function mergeFinalMatchData(
@@ -78,33 +80,39 @@ function mergeFinalMatchData(
   apiSfMatches: LiveMatch[],
 ): Match[] {
   const merged = mergeKnockoutMatchData(staticMatches, apiFinalMatches);
-  const sf1Winner = winnerTeamFromApiMatch(
+  const sf1 = resultTeamsFromApiMatch(
     apiSfMatches.find((m) => m.id === "101"),
   );
-  const sf2Winner = winnerTeamFromApiMatch(
+  const sf2 = resultTeamsFromApiMatch(
     apiSfMatches.find((m) => m.id === "102"),
   );
 
   return merged.map((match) => {
-    if (match.stage !== "FINAL") return match;
     const apiFinal = apiFinalMatches.find((m) => m.id === numericId(match.id));
     const apiHasTeams =
       apiFinal?.homeTeam &&
       apiFinal.awayTeam &&
       apiFinal.homeTeam !== "undefined" &&
       apiFinal.awayTeam !== "undefined";
-    if (apiHasTeams || !sf1Winner || !sf2Winner) return match;
+    if (apiHasTeams || !sf1 || !sf2) return match;
+    const teams =
+      match.stage === "FINAL"
+        ? { home: sf1.winner, away: sf2.winner }
+        : match.stage === "THIRD"
+          ? { home: sf1.loser, away: sf2.loser }
+          : null;
+    if (!teams) return match;
     return {
       ...match,
       homeTeam: {
         ...match.homeTeam,
-        name: sf1Winner.name,
-        flag: sf1Winner.flag,
+        name: teams.home.name,
+        flag: teams.home.flag,
       },
       awayTeam: {
         ...match.awayTeam,
-        name: sf2Winner.name,
-        flag: sf2Winner.flag,
+        name: teams.away.name,
+        flag: teams.away.flag,
       },
     };
   });
@@ -251,7 +259,7 @@ export default function HomePage() {
   const sfMerged = mergeKnockoutMatchData(SF_MATCHES, apiSfMatches);
   const sfUnpredicted = sfMerged.filter((m) => !predictions[m.id]);
   const finalMerged = mergeFinalMatchData(
-    FINAL_MATCHES.filter((m) => m.stage === "FINAL"),
+    FINAL_MATCHES,
     apiFinalMatches,
     apiSfMatches,
   );
@@ -279,7 +287,9 @@ export default function HomePage() {
       m.homeTeam.name &&
       m.awayTeam.name &&
       !m.homeTeam.name.startsWith("Winner") &&
-      !m.awayTeam.name.startsWith("Winner"),
+      !m.homeTeam.name.startsWith("Loser") &&
+      !m.awayTeam.name.startsWith("Winner") &&
+      !m.awayTeam.name.startsWith("Loser"),
   );
   const showFinalSection = sfAllFinished || finalTeamsKnown;
 
@@ -326,13 +336,13 @@ export default function HomePage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
           {
-            label: "Final Predicted",
+            label: "Final Stage Picks",
             value: `${finalMerged.filter((m) => predictions[m.id]).length}/${finalMerged.length}`,
             icon: Target,
             color: "text-wc-blue",
           },
           {
-            label: "Final Match",
+            label: "Final Stage",
             value: showFinalSection ? "Open" : "Soon",
             icon: Zap,
             color: "text-wc-gold",
@@ -386,10 +396,13 @@ export default function HomePage() {
               <div className="flex items-center gap-2 bg-amber-900/20 border border-amber-500/30 rounded-xl px-4 py-2">
                 <Lock size={14} className="text-amber-400 flex-shrink-0" />
                 <p className="text-xs text-amber-300">
-                  Final predictions are open. Deadline is{" "}
+                  Final-stage predictions are open. Deadline is{" "}
                   <strong>1 hour before kickoff</strong>.
                 </p>
               </div>
+              <p className="text-xs text-gray-500">
+                Includes Rank 3 and Final picks.
+              </p>
               {finalUnpredicted.map((match, i) => {
                 const locked = isMatchLockedByTime(match.date);
                 return (
@@ -417,6 +430,9 @@ export default function HomePage() {
                   View pick <ChevronRight size={12} />
                 </Link>
               </div>
+              <p className="text-xs text-gray-500">
+                Includes Rank 3 and Final picks.
+              </p>
               {finalMerged.map((match, i) => (
                 <MatchCard
                   key={match.id}
